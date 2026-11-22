@@ -1,0 +1,15 @@
+{
+	"appId": "edu.dbl.campus",
+	"appName": "DBL Campus",
+	"webDir": "dist",
+	"server": {
+		"androidScheme": "http",
+		"cleartext": true
+	},
+	"android": {
+		"allowMixedContent": true
+	},
+	"ios": {
+		"contentInset": "automatic"
+	}
+}

@@ -327,5 +327,65 @@ test('End-to-End Integration Suite covering Scenarios 1–25', async (t) => {
     assert.equal(restoreRes.status, 200);
   });
 
+  await t.test('26. Mobile APK/IPA Release Hosting, Magic-Bytes Validation, RBAC & Cleanup', async () => {
+    const initial = await api('/api/mobile/releases', 'GET');
+    assert.equal(initial.status, 200);
+    assert.equal(initial.data.apk.platform, 'apk');
+    assert.equal(initial.data.ipa.platform, 'ipa');
+    assert.ok(Array.isArray(initial.data.lanUrls));
+
+    // Minimal valid ZIP local file header magic bytes (PK\x03\x04) padded past 64-byte minimum size check
+    const validZipBytes = Buffer.alloc(128, 0);
+    validZipBytes.set([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00, 0x08, 0x00], 0);
+    const invalidBytes = Buffer.from('not-a-valid-apk-archive-'.repeat(4), 'utf-8');
+
+    // Student cannot upload mobile releases (403)
+    const stuUpload = await fetch(`${BASE}/api/mobile/releases/upload?platform=apk`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${newStudentToken}`,
+        'Content-Type': 'application/octet-stream',
+      },
+      body: validZipBytes,
+    });
+    assert.equal(stuUpload.status, 403);
+
+    // Representative uploading invalid non-ZIP payload gets 400
+    const badUpload = await fetch(`${BASE}/api/mobile/releases/upload?platform=apk`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${repToken}`,
+        'Content-Type': 'application/octet-stream',
+      },
+      body: invalidBytes,
+    });
+    assert.equal(badUpload.status, 400);
+
+    // Representative uploading valid ZIP-header APK succeeds (201)
+    const okUpload = await fetch(`${BASE}/api/mobile/releases/upload?platform=apk`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${repToken}`,
+        'Content-Type': 'application/octet-stream',
+      },
+      body: validZipBytes,
+    });
+    assert.equal(okUpload.status, 201);
+
+    // Download endpoint serves APK binary with proper MIME type
+    const dlApk = await fetch(`${BASE}/api/mobile/download/apk`);
+    assert.equal(dlApk.status, 200);
+    assert.equal(dlApk.headers.get('content-type'), 'application/vnd.android.package-archive');
+    const dlBuf = Buffer.from(await dlApk.arrayBuffer());
+    assert.deepEqual(dlBuf, validZipBytes);
+
+    // Clean up test release binary so no dummy APK remains on disk
+    const delApk = await api('/api/mobile/releases/apk', 'DELETE', undefined, repToken);
+    assert.equal(delApk.status, 200);
+
+    const afterDel = await api('/api/mobile/releases', 'GET');
+    assert.equal(afterDel.data.apk.available, false);
+  });
+
   server.close();
 });

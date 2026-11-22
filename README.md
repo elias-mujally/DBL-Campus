@@ -74,8 +74,19 @@ npx --yes tsx --test src/server/integration.test.ts
 
 ---
 
-## 5. خريطة الوثائق المرفقة
+## 5. بناء وتنزيل تطبيق الهاتف (Android APK & iOS IPA)
 
+يدعم المشروع حزم الهواتف الأصلية عبر **Capacitor (`android/` و `ios/`)** بالإضافة إلى مسار بناء سحابي تلقائي عبر **GitHub Actions (`.github/workflows/build-mobile.yml`)** يولّد:
+- **`DBL-Campus-Android.apk`** (على بيئة `ubuntu-latest` + Gradle).
+- **`DBL-Campus-iOS.ipa`** (على بيئة `macos-15` + Xcode).
+
+كما يمكن لمندوب الدفعة رفع ملفَي `.apk` و `.ipa` مباشرةً إلى الخادم المحلي من زر **«تطبيق الهاتف (APK / IPA)»** داخل الواجهة ليقوم الطلاب بتنزيلهما عبر الشبكة المحلية (`LAN`) دون إنترنت. راجع الدليل الكامل في [`MOBILE_BUILD_GUIDE_AR.md`](./MOBILE_BUILD_GUIDE_AR.md).
+
+---
+
+## 6. خريطة الوثائق المرفقة
+
+- [`MOBILE_BUILD_GUIDE_AR.md`](./MOBILE_BUILD_GUIDE_AR.md): دليل بناء وتثبيت حزم Android APK و iOS IPA عبر GitHub Actions وتوزيعها على الشبكة المحلية.
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md): المعمارية الهندسية، تصميم قاعدة البيانات، والأمن، وكيفية التوسع للوصول من خارج الشبكة المحلية مستقبلاً.
 - [`USER_GUIDE_AR.md`](./USER_GUIDE_AR.md): دليل الاستخدام للطلاب والمنسقين.
 - [`ADMIN_GUIDE_AR.md`](./ADMIN_GUIDE_AR.md): دليل الإدارة لمندوب الدفعة ونائبه (النسخ الاحتياطي، تفويض الصلاحيات، واستيراد الطلاب).

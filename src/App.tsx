@@ -18,6 +18,7 @@ import {
   MessageSquarePlus,
   Moon,
   Search,
+  Smartphone,
   Sun,
   UserCheck,
   Users,
@@ -38,6 +39,7 @@ import type {
 import { ROLE_LABELS_AR, apiFetch, setAuthToken } from './utils/api';
 import { hasPermission } from './utils/domainLogic';
 import { PWAInstallButton, OfflineIndicator } from './components/PWAInstallButton';
+import { MobileAppsModal } from './components/MobileAppsModal';
 import { DashboardView } from './components/DashboardView';
 import { ScheduleView } from './components/ScheduleView';
 import { AssignmentsView } from './components/AssignmentsView';
@@ -93,6 +95,7 @@ export default function App() {
   const [searchResults, setSearchResults] = useState<SearchResultItem[]>([]);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showMobileAppsModal, setShowMobileAppsModal] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profileName, setProfileName] = useState('');
   const [profileEmail, setProfileEmail] = useState('');
@@ -341,8 +344,18 @@ export default function App() {
             <span className="text-lg font-bold tracking-tight">DBL Campus</span>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
-            <PWAInstallButton />
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowMobileAppsModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-teal-600/40 dark:border-teal-500/40 bg-teal-50 dark:bg-teal-950/40 text-teal-800 dark:text-teal-300 text-xs font-bold hover:bg-teal-100 dark:hover:bg-teal-900/50 transition-colors whitespace-nowrap shrink-0"
+            >
+              <Smartphone className="w-3.5 h-3.5 shrink-0" />
+              <span>تطبيق الهاتف (APK / IPA)</span>
+            </button>
+            <div className="hidden sm:block">
+              <PWAInstallButton />
+            </div>
             <button
               type="button"
               onClick={() => setDarkMode(!darkMode)}
@@ -576,6 +589,14 @@ export default function App() {
           <span>DBL Campus — Student Cohort Management Platform</span>
           <span>يعمل محلياً عبر قاعدة بيانات SQLite متعددة المستخدمين على الشبكة المحلية</span>
         </footer>
+
+        {showMobileAppsModal && (
+          <MobileAppsModal
+            user={null}
+            onClose={() => setShowMobileAppsModal(false)}
+            notify={notify}
+          />
+        )}
       </div>
     );
   }
@@ -793,6 +814,15 @@ export default function App() {
 
           {/* Actions Zone */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowMobileAppsModal(true)}
+              aria-label="تنزيل تطبيق الهاتف APK و IPA"
+              className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-teal-600/40 dark:border-teal-500/40 bg-teal-50 dark:bg-teal-950/40 text-teal-800 dark:text-teal-300 text-xs font-bold hover:bg-teal-100 dark:hover:bg-teal-900/50 transition-colors whitespace-nowrap shrink-0"
+            >
+              <Smartphone className="w-3.5 h-3.5 shrink-0" />
+              <span>APK / IPA</span>
+            </button>
             <div className="hidden md:block">
               <PWAInstallButton />
             </div>
@@ -1058,7 +1088,18 @@ export default function App() {
               </nav>
             </div>
 
-            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setShowMobileAppsModal(true);
+                }}
+                className="w-full inline-flex items-center justify-center gap-2 py-2 px-3 rounded-lg border border-teal-600/40 bg-teal-50 dark:bg-teal-950/40 text-teal-800 dark:text-teal-300 text-xs font-bold"
+              >
+                <Smartphone className="w-4 h-4 shrink-0" />
+                <span>تطبيق الهاتف (APK / IPA)</span>
+              </button>
               <PWAInstallButton />
               <button
                 type="button"
@@ -1203,6 +1244,13 @@ export default function App() {
             </form>
           </div>
         </div>
+      )}
+      {showMobileAppsModal && (
+        <MobileAppsModal
+          user={user}
+          onClose={() => setShowMobileAppsModal(false)}
+          notify={notify}
+        />
       )}
     </div>
   );

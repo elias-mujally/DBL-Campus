@@ -1,3 +1,5 @@
+import { getSavedServerBaseUrl, resolveApiUrl } from './mobileConfig';
+
 let authTokenMemory = '';
 
 export function setAuthToken(token: string): void {
@@ -6,6 +8,10 @@ export function setAuthToken(token: string): void {
 
 export function getAuthToken(): string {
   return authTokenMemory;
+}
+
+export function buildApiUrl(path: string): string {
+  return resolveApiUrl(path, getSavedServerBaseUrl());
 }
 
 export async function apiFetch<T>(
@@ -21,7 +27,7 @@ export async function apiFetch<T>(
     headers.Authorization = `Bearer ${authTokenMemory}`;
   }
 
-  const res = await fetch(path, {
+  const res = await fetch(buildApiUrl(path), {
     ...options,
     headers,
   });

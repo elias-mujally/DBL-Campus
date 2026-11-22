@@ -20,7 +20,7 @@ import type {
   UserAccount,
 } from '../types';
 import { hasPermission } from '../utils/domainLogic';
-import { apiFetch, formatBytes, getAuthToken } from '../utils/api';
+import { apiFetch, buildApiUrl, formatBytes, getAuthToken } from '../utils/api';
 
 // ==========================================
 // 1. TASKS MANAGEMENT VIEW (LIST & KANBAN)
@@ -642,7 +642,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
               <div className="flex items-center gap-2">
                 <a
-                  href={`/api/files/${f.id}/download?token=${encodeURIComponent(token)}`}
+                  href={buildApiUrl(`/api/files/${f.id}/download?token=${encodeURIComponent(token)}`)}
                   download={f.fileName}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 dark:bg-teal-600 text-white font-semibold hover:opacity-90"
                 >

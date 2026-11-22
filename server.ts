@@ -1,6 +1,7 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createServer as createViteServer } from 'vite';
 import {
@@ -34,6 +35,40 @@ runMigrations();
 seedDemoEnvironment(false);
 
 export const app = express();
+
+// Scoped CORS for Capacitor Android/iOS native shells & LAN hosts (never wildcard '*' on authenticated endpoints)
+function isAllowedMobileOrigin(origin: string): boolean {
+  if (
+    origin === 'capacitor://localhost' ||
+    origin === 'ionic://localhost' ||
+    origin === 'http://localhost' ||
+    origin === 'https://localhost' ||
+    /^http:\/\/localhost:\d+$/.test(origin) ||
+    /^http:\/\/127\.0\.0\.1:\d+$/.test(origin) ||
+    /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/.test(origin) ||
+    /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/.test(origin) ||
+    /^http:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}(:\d+)?$/.test(origin)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && isAllowedMobileOrigin(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  }
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
+
 app.use(express.json({ limit: '12mb' }));
 
 // Simple rate limiter for login attempts
@@ -2087,6 +2122,168 @@ app.post('/api/admin/demo-purge', requireAuth, (req, res) => {
   }
   purgeDemoData();
   logAudit(user, 'PURGE_DEMO_DATA', 'system', 'demo', 'إزالة جميع البيانات التجريبية دون المساس بالبيانات الفعلية');
+  res.json({ ok: true });
+});
+
+// ==========================================
+// 11. MOBILE APP PACKAGES (ANDROID APK & IOS IPA)
+// ==========================================
+
+const RELEASES_DIR = path.resolve(process.cwd(), 'data', 'releases');
+if (!fs.existsSync(RELEASES_DIR)) {
+  fs.mkdirSync(RELEASES_DIR, { recursive: true });
+}
+
+const RELEASE_FILENAMES: Record<'apk' | 'ipa', { fileName: string; mimeType: string }> = {
+  apk: {
+    fileName: 'DBL-Campus-Android.apk',
+    mimeType: 'application/vnd.android.package-archive',
+  },
+  ipa: {
+    fileName: 'DBL-Campus-iOS.ipa',
+    mimeType: 'application/octet-stream',
+  },
+};
+
+function getLocalLanUrls(port: number): string[] {
+  const urls: string[] = [];
+  const nets = os.networkInterfaces();
+  for (const entries of Object.values(nets)) {
+    if (!entries) continue;
+    for (const info of entries) {
+      if (info.family === 'IPv4' && !info.internal) {
+        urls.push(`http://${info.address}:${port}`);
+      }
+    }
+  }
+  return urls;
+}
+
+function inspectMobileRelease(platform: 'apk' | 'ipa') {
+  const meta = RELEASE_FILENAMES[platform];
+  const filePath = path.resolve(RELEASES_DIR, meta.fileName);
+  if (!filePath.startsWith(RELEASES_DIR + path.sep) || !fs.existsSync(filePath)) {
+    return {
+      platform,
+      fileName: meta.fileName,
+      available: false,
+      sizeBytes: 0,
+      updatedAt: null as string | null,
+      sha256: null as string | null,
+    };
+  }
+  const stat = fs.statSync(filePath);
+  const hash = crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+  return {
+    platform,
+    fileName: meta.fileName,
+    available: true,
+    sizeBytes: stat.size,
+    updatedAt: stat.mtime.toISOString(),
+    sha256: hash,
+  };
+}
+
+app.get('/api/mobile/releases', (_req, res) => {
+  const port = Number(process.env.PORT) || 3000;
+  res.json({
+    apk: inspectMobileRelease('apk'),
+    ipa: inspectMobileRelease('ipa'),
+    lanUrls: getLocalLanUrls(port),
+    workflowFile: '.github/workflows/build-mobile.yml',
+  });
+});
+
+app.post(
+  '/api/mobile/releases/upload',
+  requireAuth,
+  express.raw({ type: 'application/octet-stream', limit: '80mb' }),
+  (req, res) => {
+    const user = (req as express.Request & { user: UserAccount }).user;
+    if (user.role !== 'representative') {
+      res.status(403).json({ error: 'فقط مندوب الدفعة يمكنه رفع حزم تطبيق الهاتف (APK / IPA).' });
+      return;
+    }
+
+    const platform = String(req.query.platform || '').toLowerCase();
+    if (platform !== 'apk' && platform !== 'ipa') {
+      res.status(400).json({ error: 'نوع الحزمة غير مدعوم. يُقبل فقط apk أو ipa.' });
+      return;
+    }
+
+    const buf = req.body;
+    if (!Buffer.isBuffer(buf) || buf.byteLength < 64) {
+      res.status(400).json({ error: 'الملف المرفوع فارغ أو غير صالح.' });
+      return;
+    }
+
+    // Both Android APK and iOS IPA packages are ZIP archives starting with PK\x03\x04
+    if (!(buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04)) {
+      res.status(400).json({
+        error: 'صيغة الملف غير صحيحة. يجب رفع ملف APK أو IPA حقيقي ومبني بشكل سليم (أرشيف ZIP قياسي).',
+      });
+      return;
+    }
+
+    const meta = RELEASE_FILENAMES[platform];
+    const targetPath = path.resolve(RELEASES_DIR, meta.fileName);
+    if (!targetPath.startsWith(RELEASES_DIR + path.sep)) {
+      res.status(400).json({ error: 'مسار تخزين غير صالح.' });
+      return;
+    }
+
+    fs.writeFileSync(targetPath, buf);
+    logAudit(
+      user,
+      'UPLOAD_MOBILE_RELEASE',
+      'mobile_release',
+      platform,
+      `رفع حزمة تطبيق الهاتف ${meta.fileName} (${buf.byteLength} بايت)`
+    );
+    res.status(201).json({ ok: true, release: inspectMobileRelease(platform) });
+  }
+);
+
+app.get('/api/mobile/download/:platform', (req, res) => {
+  const platform = String(req.params.platform || '').toLowerCase();
+  if (platform !== 'apk' && platform !== 'ipa') {
+    res.status(400).json({ error: 'نوع الحزمة المطلوب غير صالح.' });
+    return;
+  }
+
+  const meta = RELEASE_FILENAMES[platform];
+  const filePath = path.resolve(RELEASES_DIR, meta.fileName);
+  if (!filePath.startsWith(RELEASES_DIR + path.sep) || !fs.existsSync(filePath)) {
+    res.status(404).json({
+      error: `لم يتم رفع ملف ${meta.fileName} على هذا الخادم بعد. قم ببنائه عبر GitHub Actions ثم رفعه من لوحة المندوب.`,
+    });
+    return;
+  }
+
+  res.setHeader('Content-Type', meta.mimeType);
+  res.setHeader('Content-Disposition', `attachment; filename="${meta.fileName}"`);
+  res.sendFile(filePath);
+});
+
+app.delete('/api/mobile/releases/:platform', requireAuth, (req, res) => {
+  const user = (req as express.Request & { user: UserAccount }).user;
+  if (user.role !== 'representative') {
+    res.status(403).json({ error: 'فقط مندوب الدفعة يمكنه حذف حزم التطبيق.' });
+    return;
+  }
+
+  const platform = String(req.params.platform || '').toLowerCase();
+  if (platform !== 'apk' && platform !== 'ipa') {
+    res.status(400).json({ error: 'نوع الحزمة غير صالح.' });
+    return;
+  }
+
+  const meta = RELEASE_FILENAMES[platform];
+  const filePath = path.resolve(RELEASES_DIR, meta.fileName);
+  if (filePath.startsWith(RELEASES_DIR + path.sep) && fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+    logAudit(user, 'DELETE_MOBILE_RELEASE', 'mobile_release', platform, `حذف حزمة ${meta.fileName}`);
+  }
   res.json({ ok: true });
 });
 
