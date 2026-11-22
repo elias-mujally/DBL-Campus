@@ -1,0 +1,6 @@
+{
+  "name": "DBL Campus — منصة إدارة الدفعات الجامعية",
+  "description": "نظام متكامل متعدد المستخدمين لإدارة الدفعات الجامعية، الجداول الدراسية، التكاليف، الطلبات الجماعية وكشوف التأييد، وتوزيع المهام.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
