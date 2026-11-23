@@ -1,3 +1,4 @@
+import { validateProductionOrigin } from './src/utils/productionOrigin.ts';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import fs from 'fs';
@@ -5,8 +6,12 @@ import path from 'path';
 import {defineConfig} from 'vite';
 import {VitePWA} from 'vite-plugin-pwa';
 
-export default defineConfig(() => {
+export default defineConfig(({ mode }) => {
+  const native = mode === 'native' || mode === 'native-test';
+  const serverOrigin = native ? validateProductionOrigin(process.env.DBL_NATIVE_SERVER_URL || '', mode === 'native-test') : '';
+
   return {
+    define: { __DBL_NATIVE_SERVER_ORIGIN__: JSON.stringify(serverOrigin) },
     plugins: [
       react(),
       tailwindcss(),

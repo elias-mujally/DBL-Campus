@@ -1,190 +1,182 @@
-name: Build Android APK & iOS IPA (DBL Campus)
+name: Build and verify mobile apps
 
 on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'android/**'
+      - 'ios/**'
+      - 'scripts/*mobile*'
+      - 'scripts/*apk*'
+      - 'scripts/*ios*'
+      - 'scripts/check-native-package.py'
+      - 'capacitor.config.ts'
+      - 'vite.config.ts'
+      - 'package-lock.json'
+      - '.github/workflows/build-mobile.yml'
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Optional GitHub Release tag (e.g. v1.0.0) to publish downloadable APK & IPA'
+        description: Existing vMAJOR.MINOR.PATCH tag on main. Leave blank for test artifacts only.
+        type: string
         required: false
-        default: ''
-  push:
-    tags:
-      - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build-android-apk:
-    name: Build Android APK
+  mobile-config:
     runs-on: ubuntu-latest
-    env:
-     ANDROID_KEYSTORE_CONFIGURED: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+    outputs:
+      origin: ${{ steps.config.outputs.origin }}
+      mode: ${{ steps.config.outputs.mode }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
         with:
-          node-version: '22'
-
-      - name: Setup Java 21 (Temurin)
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '21'
-
-      - name: Install dependencies
-        run: npm ci --legacy-peer-deps
-
-      - name: Build web bundle
-        run: npm run build
-
-      - name: Sync Capacitor Android project
-        run: |
-          if [ ! -d "android" ]; then
-            npx cap add android
-          fi
-          npx cap sync android
-
-      - name: Build Android Debug APK (Universal)
-        working-directory: android
-        run: |
-          chmod +x gradlew
-          ./gradlew assembleDebug
-
-      - name: Build Signed Release APK (when keystore secrets are configured)
-        if: ${{ env.ANDROID_KEYSTORE_CONFIGURED != '' }}
-        working-directory: android
+          fetch-depth: 0
+          persist-credentials: false
+      - id: config
         env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          PRODUCTION_ORIGIN: ${{ vars.DBL_PRODUCTION_URL }}
         run: |
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > app/release.keystore
-          ./gradlew assembleRelease \
-            -Pandroid.injected.signing.store.file="$(pwd)/app/release.keystore" \
-            -Pandroid.injected.signing.store.password="$ANDROID_KEYSTORE_PASSWORD" \
-            -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
-            -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD"
-
-      - name: Prepare APK output file
-        run: |
-          mkdir -p artifacts/android
-          if [ -f "android/app/build/outputs/apk/release/app-release.apk" ]; then
-            cp android/app/build/outputs/apk/release/app-release.apk artifacts/android/DBL-Campus-Android.apk
-          else
-            cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/android/DBL-Campus-Android.apk
+          mode=native-test
+          origin=https://campus.example.net
+          if [[ -n "$RELEASE_TAG" ]]; then
+            [[ "$GITHUB_REF" == refs/heads/main && "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            [[ "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" == "$GITHUB_SHA" ]]
+            test -n "$PRODUCTION_ORIGIN"
+            mode=native
+            origin=$(node --experimental-strip-types --input-type=module -e 'import {validateProductionOrigin} from "./src/utils/productionOrigin.ts"; console.log(validateProductionOrigin(process.env.PRODUCTION_ORIGIN))')
           fi
-          sha256sum artifacts/android/DBL-Campus-Android.apk
+          printf 'origin=%s\nmode=%s\n' "$origin" "$mode" >> "$GITHUB_OUTPUT"
 
-      - name: Upload Android APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: DBL-Campus-Android-APK
-          path: artifacts/android/DBL-Campus-Android.apk
-          if-no-files-found: error
-
-  build-ios-ipa:
-    name: Build iOS IPA
-    runs-on: macos-15
+  android:
+    needs: mobile-config
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      DBL_NATIVE_SERVER_URL: ${{ needs.mobile-config.outputs.origin }}
+      BUILD_MODE: ${{ needs.mobile-config.outputs.mode }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
-
-      - name: Install dependencies
-        run: npm ci --legacy-peer-deps
-
-      - name: Build web bundle
-        run: npm run build
-
-      - name: Sync Capacitor iOS project
-        run: |
-          if [ ! -d "ios" ]; then
-            npx cap add ios
-          fi
-          npx cap sync ios
-
-      - name: Install CocoaPods (if Podfile exists)
-        working-directory: ios/App
-        run: |
-          if [ -f "Podfile" ]; then
-            pod install
-          fi
-
-      - name: Build iOS App Bundle & Package Unsigned IPA (for AltStore / Sideloadly / Enterprise Resign)
-        working-directory: ios/App
-        run: |
-          if [ -d "App.xcworkspace" ]; then
-            xcodebuild -workspace App.xcworkspace \
-              -scheme App \
-              -configuration Release \
-              -sdk iphoneos \
-              -derivedDataPath build \
-              CODE_SIGNING_ALLOWED=NO \
-              CODE_SIGNING_REQUIRED=NO \
-              CODE_SIGN_IDENTITY="" \
-              build
-          else
-            xcodebuild -project App.xcodeproj \
-              -scheme App \
-              -configuration Release \
-              -sdk iphoneos \
-              -derivedDataPath build \
-              CODE_SIGNING_ALLOWED=NO \
-              CODE_SIGNING_REQUIRED=NO \
-              CODE_SIGN_IDENTITY="" \
-              build
-          fi
-          mkdir -p ../../artifacts/ios/Payload
-          cp -R build/Build/Products/Release-iphoneos/App.app ../../artifacts/ios/Payload/App.app
-          cd ../../artifacts/ios
-          zip -r DBL-Campus-iOS.ipa Payload
-          rm -rf Payload
-          shasum -a 256 DBL-Campus-iOS.ipa
-
-      - name: Upload iOS IPA artifact
-        uses: actions/upload-artifact@v4
+          cache: npm
+      - uses: actions/setup-java@v5
         with:
-          name: DBL-Campus-iOS-IPA
-          path: artifacts/ios/DBL-Campus-iOS.ipa
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci --legacy-peer-deps
+      - run: |
+          npm run build -- --mode "$BUILD_MODE"
+          npx --no-install cap sync android
+      - name: Assemble and verify APK signature
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ inputs.release_tag != '' && secrets.ANDROID_KEYSTORE_BASE64 || '' }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ inputs.release_tag != '' && secrets.ANDROID_KEYSTORE_PASSWORD || '' }}
+          ANDROID_KEY_ALIAS: ${{ inputs.release_tag != '' && secrets.ANDROID_KEY_ALIAS || '' }}
+          ANDROID_KEY_PASSWORD: ${{ inputs.release_tag != '' && secrets.ANDROID_KEY_PASSWORD || '' }}
+        run: |
+          mkdir -p artifacts
+          if [[ "$BUILD_MODE" == native ]]; then
+            test -n "$ANDROID_KEYSTORE_BASE64"
+            test -n "$ANDROID_KEYSTORE_PASSWORD"
+            test -n "$ANDROID_KEY_ALIAS"
+            test -n "$ANDROID_KEY_PASSWORD"
+            umask 077
+            keystore="$RUNNER_TEMP/campus.keystore"
+            trap 'rm -f "$keystore"' EXIT
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+            (cd android && bash gradlew assembleRelease \
+              -Pandroid.injected.signing.store.file="$keystore" \
+              -Pandroid.injected.signing.store.password="$ANDROID_KEYSTORE_PASSWORD" \
+              -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
+              -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD")
+            cp android/app/build/outputs/apk/release/app-release.apk artifacts/DBL-Campus-Android.apk
+          else
+            (cd android && bash gradlew assembleDebug)
+            cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/DBL-Campus-Android-test.apk
+          fi
+          apksigner=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          "$apksigner" verify --verbose --print-certs artifacts/*.apk
+          python3 scripts/check-native-package.py artifacts/*.apk "$DBL_NATIVE_SERVER_URL"
+          (cd artifacts && sha256sum *.apk > SHA256SUMS.txt)
+      - name: Grant emulator access to KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666"' | sudo tee /etc/udev/rules.d/99-campus-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -e /dev/kvm
+      - name: Install and launch APK on Android emulator
+        run: bash scripts/test-android-apk.sh artifacts/*.apk
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.release_tag != '' && 'Android-signed-release' || 'Android-emulator-test' }}
+          path: artifacts/
           if-no-files-found: error
 
-  publish-github-release:
-    name: Publish APK & IPA to GitHub Release
-    needs: [build-android-apk, build-ios-ipa]
-    if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_tag != '' }}
-    runs-on: ubuntu-latest
+  ios:
+    needs: mobile-config
+    runs-on: macos-15
+    timeout-minutes: 35
+    env:
+      DBL_NATIVE_SERVER_URL: ${{ needs.mobile-config.outputs.origin }}
+      BUILD_MODE: ${{ needs.mobile-config.outputs.mode }}
     steps:
-      - name: Download Android APK
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v6
         with:
-          name: DBL-Campus-Android-APK
-          path: release-files
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --legacy-peer-deps
+      - run: |
+          npm run build -- --mode "$BUILD_MODE"
+          npx --no-install cap sync ios
+      - name: Build, install and launch the iOS Simulator app
+        run: |
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/sim" CODE_SIGNING_ALLOWED=NO build
+          bash scripts/test-ios-app.sh "$RUNNER_TEMP/sim/Build/Products/Release-iphonesimulator/App.app"
+      - name: Package unsigned device build for signing separately
+        run: |
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
+            -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/device" CODE_SIGNING_ALLOWED=NO build
+          mkdir -p artifacts "$RUNNER_TEMP/package/Payload"
+          cp -R "$RUNNER_TEMP/device/Build/Products/Release-iphoneos/App.app" "$RUNNER_TEMP/package/Payload/"
+          ipa="$PWD/artifacts/DBL-Campus-iOS-unsigned.ipa"
+          (cd "$RUNNER_TEMP/package" && zip -qr "$ipa" Payload)
+          python3 scripts/check-native-package.py "$ipa" "$DBL_NATIVE_SERVER_URL"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: iOS-unsigned-for-signing
+          path: artifacts/
+          if-no-files-found: error
 
-      - name: Download iOS IPA
-        uses: actions/download-artifact@v4
+  stage-android-release:
+    name: Stage signed Android release as a draft
+    needs: [android, ios]
+    if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
         with:
-          name: DBL-Campus-iOS-IPA
+          name: Android-signed-release
           path: release-files
-
-      - name: Create GitHub Release with APK & IPA
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
-          name: DBL Campus Mobile ${{ github.event.inputs.release_tag || github.ref_name }}
-          body: |
-            ## DBL Campus Mobile Builds (Android APK & iOS IPA)
-            - **Android**: Download `DBL-Campus-Android.apk` and install directly on Android devices.
-            - **iOS**: Download `DBL-Campus-iOS.ipa` and install via AltStore, Sideloadly, TrollStore, or sign with your Apple Developer account.
-            - **Connecting to Cohort Server**: Open the app, tap **إعداد خادم الشبكة المحلية**, and enter your representative’s public HTTPS URL.
-          files: |
-            release-files/DBL-Campus-Android.apk
-            release-files/DBL-Campus-iOS.ipa
+      - name: Create draft for owner review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          (cd release-files && sha256sum --check SHA256SUMS.txt)
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
+            --title "DBL Campus $RELEASE_TAG" \
+            --notes "Signed Android APK. iOS distribution is managed separately through Apple signing and TestFlight." \
+            release-files/DBL-Campus-Android.apk release-files/SHA256SUMS.txt

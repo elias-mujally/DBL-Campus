@@ -4,6 +4,7 @@
 #   2. Create persistent volume: `fly volumes create dbl_campus_data --size 3 --region fra`
 #   3. Set secrets: `fly secrets set DBL_ADMIN_SETUP_CODE="..." DBL_SESSION_SECRET="..." APP_URL="https://<your-app>.fly.dev"`
 
+# Deploy using --ha=false, with one machine and one attached SQLite volume.
 app = "dbl-campus-cohort"
 primary_region = "fra"
 
@@ -17,6 +18,9 @@ primary_region = "fra"
   DBL_FORCE_HTTPS = "true"
   DBL_DATA_DIR = "/data"
   DBL_ALLOW_DEMO = "false"
+
+[deploy]
+  strategy = "immediate"
 
 [mounts]
   source = "dbl_campus_data"

@@ -39,3 +39,14 @@ test('resolveApiUrl joins relative API paths with LAN base URL cleanly', () => {
     'https://campus.example.edu/api/auth/login'
   );
 });
+
+test('native production origin requires public HTTPS and rejects private or reserved destinations', async () => {
+  const { validateProductionOrigin } = await import('./productionOrigin.ts');
+  assert.equal(validateProductionOrigin('https://dbl-campus.fly.dev/'), 'https://dbl-campus.fly.dev');
+  for (const origin of ['', 'http://dbl-campus.fly.dev', 'https://localhost', 'https://127.0.0.1',
+    'https://192.168.1.25', 'https://[::1]', 'https://campus.lan', 'https://campus.example.net',
+    'https://name:password@campus.fly.dev', 'https://campus.fly.dev/route', 'https://campus.fly.dev:8443']) {
+    assert.throws(() => validateProductionOrigin(origin), origin);
+  }
+  assert.equal(validateProductionOrigin('https://campus.example.net', true), 'https://campus.example.net');
+});

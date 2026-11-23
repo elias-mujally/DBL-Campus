@@ -14,6 +14,7 @@ import {
 import type { UserAccount } from '../types';
 import { apiFetch, buildApiUrl, formatBytes, getAuthToken } from '../utils/api';
 import {
+  getBundledServerOrigin,
   getSavedServerBaseUrl,
   isNativeCapacitorApp,
   saveServerBaseUrl,
@@ -47,6 +48,7 @@ export const MobileAppsModal: React.FC<MobileAppsModalProps> = ({
   onClose,
   notify,
 }) => {
+  const bundledOrigin = getBundledServerOrigin();
   const isRepresentative = user?.role === 'representative';
   const [activeTab, setActiveTab] = useState<'download' | 'server'>(
     isNativeCapacitorApp() ? 'server' : 'download'
@@ -155,20 +157,20 @@ export const MobileAppsModal: React.FC<MobileAppsModalProps> = ({
       if (!res.ok) {
         throw new Error(`استجاب الخادم برمز خطأ (${res.status})`);
       }
-      saveServerBaseUrl(check.normalized);
+      if (!bundledOrigin) saveServerBaseUrl(check.normalized);
       setServerUrlInput(check.normalized);
       setServerCheckStatus({
         ok: true,
-        message: check.normalized
+        message: bundledOrigin ? `تم الاتصال بخادم الدفعة (${bundledOrigin}).` : check.normalized
           ? `تم الاتصال بالخادم (${check.normalized}) وحفظ الإعداد بنجاح.`
           : 'تمت إعادة الضبط للاتصال بالخادم المحلي الافتراضي.',
       });
-      notify('تم حفظ عنوان خادم الشبكة المحلية بنجاح');
+      notify(bundledOrigin ? 'تم الاتصال بخادم الدفعة' : 'تم حفظ عنوان خادم الدفعة');
     } catch {
       setServerCheckStatus({
         ok: false,
         message:
-          'تعذر الوصول إلى هذا الخادم. تأكد أن الهاتف متصل بنفس شبكة Wi-Fi وأن الخادم يعمل على المنفذ 3000.',
+          'تعذر الوصول إلى خادم الدفعة. تحقق من الاتصال بالإنترنت وعنوان HTTPS.',
       });
     } finally {
       setTestingServer(false);
@@ -337,7 +339,7 @@ export const MobileAppsModal: React.FC<MobileAppsModalProps> = ({
                       حزمة الآيفون والآيباد (IPA)
                     </h3>
                     <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
-                      جاهزة للتثبيت عبر AltStore أو Sideloadly أو التوقيع عبر Xcode وTestFlight.
+                      تحتاج حزمة iOS إلى توقيع صالح وتوزيع عبر TestFlight أو ملف تعريف للأجهزة المسجلة.
                     </p>
 
                     {!loading && releases?.ipa.available && (
@@ -488,6 +490,7 @@ export const MobileAppsModal: React.FC<MobileAppsModalProps> = ({
                   type="text"
                   dir="ltr"
                   value={serverUrlInput}
+                  readOnly={Boolean(bundledOrigin)}
                   onChange={(e) => setServerUrlInput(e.target.value)}
                   placeholder="https://campus.example.edu"
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 font-mono text-xs"
@@ -511,6 +514,7 @@ export const MobileAppsModal: React.FC<MobileAppsModalProps> = ({
               <div className="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-800">
                 <button
                   type="button"
+                  hidden={Boolean(bundledOrigin)}
                   onClick={() => {
                     saveServerBaseUrl('');
                     setServerUrlInput('');
@@ -529,7 +533,7 @@ export const MobileAppsModal: React.FC<MobileAppsModalProps> = ({
                   disabled={testingServer}
                   className="px-4 py-2 rounded-lg bg-teal-600 text-white font-bold hover:bg-teal-700 disabled:opacity-60"
                 >
-                  {testingServer ? 'جاري فحص الاتصال...' : 'فحص الاتصال وحفظ الإعداد'}
+                  {testingServer ? 'جاري فحص الاتصال...' : bundledOrigin ? 'فحص الاتصال' : 'فحص الاتصال وحفظ الإعداد'}
                 </button>
               </div>
             </form>
