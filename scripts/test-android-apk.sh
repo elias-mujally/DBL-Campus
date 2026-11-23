@@ -5,8 +5,14 @@ sdk="${ANDROID_HOME:?Android SDK is required}"
 tools="$sdk/cmdline-tools/latest/bin"
 image='system-images;android-35;google_apis;x86_64'
 log="${RUNNER_TEMP:-/tmp}/campus-emulator.log"
+export ANDROID_USER_HOME="${RUNNER_TEMP:-/tmp}/campus-android"
+export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+unset ANDROID_SDK_HOME ANDROID_EMULATOR_HOME
+mkdir -p "$ANDROID_AVD_HOME"
 "$tools/sdkmanager" 'emulator' 'platform-tools' "$image" >/dev/null
-echo no | "$tools/avdmanager" create avd --force --name campus-ci --package "$image"
+echo no | "$tools/avdmanager" create avd --force --name campus-ci --package "$image" \
+  --path "$ANDROID_AVD_HOME/campus-ci.avd"
+"$sdk/emulator/emulator" -list-avds | grep -Fx campus-ci
 adb="$sdk/platform-tools/adb"
 "$adb" start-server
 "$sdk/emulator/emulator" -avd campus-ci -port 5554 -no-window -noaudio -no-boot-anim \
