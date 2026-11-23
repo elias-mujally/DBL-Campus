@@ -63,7 +63,7 @@ def setup(campus, representative):
         "Choose an empty disposable acceptance instance"
     )
     code = os.environ.get("CAMPUS_ACCEPTANCE_SETUP_CODE") or getpass.getpass("Acceptance setup code: ")
-    campus.call("/api/auth/setup-production-rep", {**representative, "setupCode": code})
+    return campus.call("/api/auth/setup-production-rep", {**representative, "setupCode": code})["user"]["id"]
 
 
 def write_private(path, value):
@@ -75,7 +75,7 @@ def seed(campus, state_path, backup_path):
     suffix = secrets.token_hex(4)
     representative = identity("representative", suffix)
     student = identity("student", suffix)
-    setup(campus, representative)
+    rep_id = setup(campus, representative)
     rep = campus.login(representative, "representative")
     campus.call("/api/users", student, rep)
     token = campus.login(student, "student")
@@ -88,7 +88,8 @@ def seed(campus, state_path, backup_path):
                                            "targetAuthority": "Test office", "isCollective": True,
                                            "requestType": "request"}, rep)
     campus.call("/api/requests/" + request["id"] + "/endorse", {}, token)
-    state = {"representative": representative, "student": student, "request": request["id"], "file": file["id"]}
+    state = {"representative": representative, "representativeId": rep_id, "student": student,
+             "request": request["id"], "file": file["id"]}
     verify(campus, state)
     backup = campus.call("/api/admin/backup", token=rep)
     assert backup["tables"]["library_files"] and backup["attachments"]
@@ -101,7 +102,9 @@ def verify(campus, state):
     token = campus.login(state["student"], "student")
     assert campus.call("/api/files/" + state["file"] + "/download", token=token, raw=True) == ATTACHMENT
     request = next(row for row in campus.call("/api/requests", token=token) if row["id"] == state["request"])
-    assert request["userHasEndorsed"] and request["endorsementCount"] == 1
+    # The creator endorses on behalf of their own account at creation.
+    assert request["userHasEndorsed"] and request["endorsementCount"] == 2
+    assert request["assignedTo"] == state["representativeId"]
 
 
 def restore(campus, state, backup):
