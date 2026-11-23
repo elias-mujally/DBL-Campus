@@ -14,6 +14,8 @@ services:
       DBL_ALLOW_DEMO: ${DBL_ALLOW_DEMO:-false}
       APP_URL: ${APP_URL:?Set APP_URL in .env e.g. https://campus.example.edu}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      DBL_ANDROID_RELEASE_SHA256: ${DBL_ANDROID_RELEASE_SHA256:-}
+      DBL_IOS_RELEASE_SHA256: ${DBL_IOS_RELEASE_SHA256:-}
       DBL_ADMIN_SETUP_CODE: ${DBL_ADMIN_SETUP_CODE:?Set a strong DBL_ADMIN_SETUP_CODE in .env}
       DBL_SESSION_SECRET: ${DBL_SESSION_SECRET:?Set a 32+ char random DBL_SESSION_SECRET in .env}
     volumes:

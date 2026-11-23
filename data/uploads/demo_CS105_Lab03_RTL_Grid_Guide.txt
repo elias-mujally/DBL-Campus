@@ -1,4 +1,0 @@
-DBL Campus - Web Design (CS105)
-Lab 03: Responsive RTL Layouts with CSS Grid & Logical Properties
-- margin-inline-start / padding-inline-end
-- dir="rtl" best practices

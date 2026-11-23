@@ -36,7 +36,7 @@ import type {
   ScheduleConflict,
   UserAccount,
 } from './types';
-import { ROLE_LABELS_AR, apiFetch, setAuthToken } from './utils/api';
+import { ROLE_LABELS_AR, apiFetch, getAuthToken, setAuthToken } from './utils/api';
 import { hasPermission } from './utils/domainLogic';
 import { PWAInstallButton, OfflineIndicator } from './components/PWAInstallButton';
 import { MobileAppsModal } from './components/MobileAppsModal';
@@ -91,6 +91,8 @@ export default function App() {
   const [members, setMembers] = useState<UserAccount[]>([]);
 
   // Global search & notification center & profile modal
+  const [selectedResult, setSelectedResult] = useState<SearchResultItem | null>(null);
+  const [searchError, setSearchError] = useState(false);
   const [globalQuery, setGlobalQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResultItem[]>([]);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
@@ -99,6 +101,8 @@ export default function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profileName, setProfileName] = useState('');
   const [profileEmail, setProfileEmail] = useState('');
+  const [profileCurrentPass, setProfileCurrentPass] = useState('');
+  const [loadError, setLoadError] = useState('');
   const [profileNewPass, setProfileNewPass] = useState('');
 
   useEffect(() => {
@@ -117,6 +121,7 @@ export default function App() {
   }, []);
 
   const loadAllCohortData = useCallback(async () => {
+    const token = getAuthToken();
     try {
       const [
         coursesData,
@@ -138,6 +143,7 @@ export default function App() {
         apiFetch<UserAccount[]>('/api/users'),
       ]);
 
+      if (token !== getAuthToken()) return;
       setCourses(coursesData);
       setLectures(lecturesData.lectures);
       setConflicts(lecturesData.conflicts);
@@ -148,9 +154,30 @@ export default function App() {
       setFiles(filesData);
       setMembers(usersData);
     } catch (err: unknown) {
+      if (token !== getAuthToken()) return;
       notify(err instanceof Error ? err.message : 'تعذر تحميل بيانات الدفعة', 'error');
     }
   }, [notify]);
+
+  const switchSession = useCallback((token: string, nextUser: UserAccount | null) => {
+    setAuthToken(token);
+    setCourses([]);
+    setLectures([]);
+    setConflicts([]);
+    setAssignments([]);
+    setAnnouncements([]);
+    setRequests([]);
+    setTasks([]);
+    setFiles([]);
+    setMembers([]);
+    setSearchResults([]);
+    setSelectedResult(null);
+    setGlobalQuery('');
+    setActiveTab('dashboard');
+    setProfileCurrentPass('');
+    setProfileNewPass('');
+    setUser(nextUser);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -169,7 +196,7 @@ export default function App() {
         setRequiresSetupPasscode(status.requiresSetupPasscode);
 
         if (availableDemos.length === 0) {
-          setAuthTab(status.hasProductionRepresentative ? 'login' : 'setup');
+          setAuthTab(!status.hasProductionRepresentative && status.requiresSetupPasscode ? 'setup' : 'login');
           setLoginIdentifier('');
           setLoginPassword('');
         }
@@ -188,35 +215,52 @@ export default function App() {
               body: JSON.stringify({ userId: repDemo.id }),
             }
           );
-          setAuthToken(loginRes.token);
-          setUser(loginRes.user);
+          switchSession(loginRes.token, loginRes.user);
           await loadAllCohortData();
         }
       } catch {
-        // ignore initial status check failure
+        setAuthTab('login');
+        setLoadError('تعذر التحقق من اتصال الخادم.');
       } finally {
         setLoading(false);
       }
     })();
-  }, [loadAllCohortData]);
+  }, [loadAllCohortData, switchSession]);
 
   useEffect(() => {
     if (!user || !globalQuery.trim()) {
       setSearchResults([]);
       return;
     }
+    setSearchError(false);
+    let active = true;
     const timer = setTimeout(async () => {
       try {
         const res = await apiFetch<{ results: SearchResultItem[] }>(
           `/api/search?q=${encodeURIComponent(globalQuery.trim())}`
         );
-        setSearchResults(res.results);
+        if (active) setSearchResults(res.results);
       } catch {
-        setSearchResults([]);
+        if (active) { setSearchResults([]); setSearchError(true); }
       }
     }, 200);
-    return () => clearTimeout(timer);
+    return () => { active = false; clearTimeout(timer); };
   }, [globalQuery, user]);
+
+  useEffect(() => {
+    if (selectedResult && activeTab === selectedResult.tab) {
+      const hit = document.getElementById('result-' + selectedResult.id);
+      hit?.scrollIntoView({ block: 'center' });
+      hit?.focus({ preventScroll: true });
+    }
+  }, [activeTab, selectedResult]);
+
+  const openSearchResult = (item: SearchResultItem) => {
+    setActiveTab(item.tab);
+    setSelectedResult(item);
+    setGlobalQuery('');
+    setMobileMenuOpen(false);
+  };
 
   const handleStandardLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -228,10 +272,9 @@ export default function App() {
           password: loginPassword,
         }),
       });
-      setAuthToken(res.token);
-      setUser(res.user);
+      switchSession(res.token, res.user);
       setActiveTab('dashboard');
-      await loadAllCohortData();
+      if (!res.user.mustChangePassword) await loadAllCohortData();
       notify(`مرحباً بك، ${res.user.fullName}`);
     } catch (err: unknown) {
       notify(err instanceof Error ? err.message : 'تعذر تسجيل الدخول', 'error');
@@ -244,9 +287,8 @@ export default function App() {
         method: 'POST',
         body: JSON.stringify({ userId: targetUserId }),
       });
-      setAuthToken(res.token);
-      setUser(res.user);
-      await loadAllCohortData();
+      switchSession(res.token, res.user);
+      if (!res.user.mustChangePassword) await loadAllCohortData();
       notify(`تم التبديل إلى جلسة: ${res.user.fullName} (${ROLE_LABELS_AR[res.user.role]})`);
     } catch (err: unknown) {
       notify(err instanceof Error ? err.message : 'تعذر تبديل الحساب التجريبي', 'error');
@@ -270,10 +312,9 @@ export default function App() {
           }),
         }
       );
-      setAuthToken(res.token);
-      setUser(res.user);
+      switchSession(res.token, res.user);
       setHasProdRep(true);
-      await loadAllCohortData();
+      if (!res.user.mustChangePassword) await loadAllCohortData();
       notify('تم إعداد حساب مندوب الدفعة الفعلي بنجاح');
     } catch (err: unknown) {
       notify(err instanceof Error ? err.message : 'تعذر إعداد الحساب', 'error');
@@ -286,8 +327,7 @@ export default function App() {
     } catch {
       // ignore
     }
-    setAuthToken('');
-    setUser(null);
+    switchSession('', null);
   };
 
   const handleLogoutAllSessions = async () => {
@@ -298,8 +338,7 @@ export default function App() {
       // ignore
     }
     setShowProfileModal(false);
-    setAuthToken('');
-    setUser(null);
+    switchSession('', null);
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -308,13 +347,15 @@ export default function App() {
       const res = await apiFetch<{ user: UserAccount }>('/api/auth/profile', {
         method: 'PUT',
         body: JSON.stringify({
-          fullName: profileName,
-          email: profileEmail,
+          fullName: user?.mustChangePassword ? user.fullName : profileName,
+          email: user?.mustChangePassword ? user.email : profileEmail,
+          currentPassword: profileCurrentPass || undefined,
           newPassword: profileNewPass || undefined,
         }),
       });
       setUser(res.user);
       setProfileNewPass('');
+      setProfileCurrentPass('');
       setShowProfileModal(false);
       notify('تم تحديث معلومات حسابك الشخصية بنجاح');
       await loadAllCohortData();
@@ -334,6 +375,21 @@ export default function App() {
         </div>
       </div>
     );
+  }
+
+  if (user?.mustChangePassword) {
+    return <main className="max-w-md mx-auto p-6">
+      <h1 className="text-xl font-bold">تغيير كلمة المرور الأولية</h1>
+      <form onSubmit={handleSaveProfile} className="grid gap-3 mt-4">
+        <label>الرمز الأولي<input type="password" autoComplete="current-password" required value={profileCurrentPass}
+          onChange={event => setProfileCurrentPass(event.target.value)} className="block border rounded px-2 py-1" /></label>
+        <label>كلمة مرور جديدة<input type="password" autoComplete="new-password" required minLength={8} value={profileNewPass}
+          onChange={event => setProfileNewPass(event.target.value)} className="block border rounded px-2 py-1" /></label>
+        <button type="submit">حفظ كلمة المرور</button>
+      </form>
+      <button type="button" onClick={handleLogout} className="mt-4">تسجيل الخروج</button>
+      {toast && <p role="status">{toast.msg}</p>}
+    </main>;
   }
 
   // ==========================================
@@ -443,7 +499,7 @@ export default function App() {
               >
                 تسجيل الدخول
               </button>
-              {!hasProdRep && (
+              {!hasProdRep && requiresSetupPasscode && demoAccounts.length === 0 && (
                 <button
                   type="button"
                   onClick={() => setAuthTab('setup')}
@@ -458,6 +514,7 @@ export default function App() {
               )}
             </div>
 
+            {loadError && <button type="button" onClick={() => window.location.reload()}>{loadError} إعادة المحاولة</button>}
             {authTab === 'demo' && demoAccounts.length > 0 && (
               <div className="space-y-3">
                 <p className="text-xs text-slate-600 dark:text-slate-400">
@@ -802,17 +859,14 @@ export default function App() {
               <div className="absolute left-0 right-0 mt-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl z-50 max-h-80 overflow-y-auto p-2">
                 {searchResults.length === 0 ? (
                   <p className="p-3 text-center text-xs text-slate-500">
-                    لا توجد نتائج مطابقة ضمن صلاحيات حسابك.
+                    {searchError ? 'تعذر البحث' : 'لا توجد نتائج مطابقة'} ضمن صلاحيات حسابك.
                   </p>
                 ) : (
                   searchResults.map((item) => (
                     <button
                       key={`${item.type}-${item.id}`}
                       type="button"
-                      onClick={() => {
-                        setActiveTab(item.tab);
-                        setGlobalQuery('');
-                      }}
+                      onClick={() => openSearchResult(item)}
                       className="w-full text-right p-2.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-between gap-2"
                     >
                       <div>
@@ -959,6 +1013,7 @@ export default function App() {
 
           {activeTab === 'schedule' && (
             <ScheduleView
+              key={selectedResult?.id}
               user={user}
               courses={courses}
               lectures={lectures}
@@ -970,9 +1025,11 @@ export default function App() {
 
           {activeTab === 'assignments' && (
             <AssignmentsView
+              key={selectedResult?.id}
               user={user}
               courses={courses}
               assignments={assignments}
+              files={files}
               onRefresh={loadAllCohortData}
               notify={notify}
             />
@@ -980,6 +1037,7 @@ export default function App() {
 
           {activeTab === 'announcements' && (
             <AnnouncementsView
+              key={selectedResult?.id}
               user={user}
               announcements={announcements}
               onRefresh={loadAllCohortData}
@@ -989,6 +1047,7 @@ export default function App() {
 
           {activeTab === 'requests' && (
             <RequestsView
+              key={selectedResult?.id}
               user={user}
               requests={requests}
               onRefresh={loadAllCohortData}
@@ -1073,6 +1132,12 @@ export default function App() {
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 pr-9 pl-3 py-2 text-xs"
                 />
               </div>
+
+              {globalQuery.trim() && <div className="space-y-1">
+                {searchError && <p role="status">تعذر البحث</p>}
+                {searchResults.map(item => <button key={item.id} type="button" onClick={() => openSearchResult(item)}
+                  className="block w-full text-start rounded border px-2 py-1 text-xs">{item.title}</button>)}
+              </div>}
 
               <nav className="space-y-1">
                 {navItems.map((item) => {
@@ -1201,6 +1266,12 @@ export default function App() {
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 font-mono"
                 />
               </div>
+              <label className="block">
+                كلمة المرور الحالية عند تغيير البريد أو كلمة المرور
+                <input type="password" autoComplete="current-password" value={profileCurrentPass}
+                  onChange={event => setProfileCurrentPass(event.target.value)}
+                  className="block w-full rounded-lg border px-3 py-2" />
+              </label>
               <div>
                 <label className="block font-semibold mb-1">
                   كلمة مرور جديدة (اتركها فارغة للإبقاء على الحالية)

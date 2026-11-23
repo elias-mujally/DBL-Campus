@@ -1,5 +1,8 @@
 import 'dotenv/config';
+import { computeRequestVersionHash } from './src/server/requestVersion.ts';
 import express from 'express';
+import { backupBodyLimit, exportBackup, restoreBackup } from './src/server/backup.ts';
+import { parseRosterCsv } from './src/utils/rosterCsv.ts';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -21,7 +24,6 @@ import {
 } from './src/server/db.ts';
 import {
   buildSafeContentDisposition,
-  computeBackupChecksum,
   createRateLimiter,
   createSignedDownloadTicket,
   hashSessionToken,
@@ -40,12 +42,12 @@ import type {
 } from './src/types.ts';
 import {
   canModifyEndorsement,
-  computeRequestVersionHash,
   detectScheduleConflicts,
   doGroupsOverlap,
   hasPermission,
   requiresEndorsementResetOnEdit,
   validateRequestTransition,
+  timeToMinutes,
 } from './src/utils/domainLogic.ts';
 
 function isProductionMode(): boolean {
@@ -69,9 +71,13 @@ const TICKET_SIGNING_SECRET =
   process.env.DBL_SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 
 runMigrations();
-if (isDemoModeEnabled()) {
-  seedDemoEnvironment(false);
+const hasDemoRecords = ['users', 'courses', 'lectures', 'assignments', 'announcements', 'requests', 'tasks', 'library_files']
+  .some(table => db.prepare(`SELECT 1 FROM ${table} WHERE is_demo=1 LIMIT 1`).get());
+const hasProductionUsers = Boolean(db.prepare('SELECT 1 FROM users WHERE is_demo=0 LIMIT 1').get());
+if ((isDemoModeEnabled() && hasProductionUsers) || (!isDemoModeEnabled() && hasDemoRecords)) {
+  throw new Error('Use a separate database for demo and production. Existing data was preserved.');
 }
+if (isDemoModeEnabled()) seedDemoEnvironment(false);
 
 export const app = express();
 app.disable('x-powered-by');
@@ -79,18 +85,12 @@ app.set('trust proxy', parseTrustProxy(process.env.TRUST_PROXY, isProductionMode
 
 // Enforce HTTPS behind TLS-terminating reverse proxies in production (exempt /api/health)
 app.use((req, res, next) => {
-  if (isHttpsForceEnabled() && req.path !== '/api/health') {
-    const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
-      .split(',')[0]
-      .trim()
-      .toLowerCase();
-    if (forwardedProto === 'http') {
-      const host = req.headers.host;
-      if (host) {
-        res.redirect(301, `https://${host}${req.originalUrl}`);
-        return;
-      }
+  if (isHttpsForceEnabled() && req.path !== '/api/health' && !req.secure) {
+    const origin = process.env.APP_URL;
+    if (origin && /^https:\/\/[^/?#]+\/?$/i.test(origin)) {
+      return res.redirect(308, origin.replace(/\/$/, '') + '/' + req.originalUrl.replace(/^\/+/, ''));
     }
+    return res.status(426).json({ error: 'يتطلب الخادم اتصال HTTPS.' });
   }
   next();
 });
@@ -101,11 +101,12 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
 
-  const isHttps =
-    req.secure ||
-    String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase() === 'https';
-  if (isHttps || isProductionMode()) {
-    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  if (req.secure) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+  if (isProductionMode()) {
+    res.setHeader('Content-Security-Policy',
+      "default-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; " +
+      "form-action 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; " +
+      "img-src 'self' data: blob:; connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com");
   }
 
   if (req.path.startsWith('/api/')) {
@@ -139,9 +140,14 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '12mb' }));
+const parseJson = express.json({ limit: '12mb' });
+app.use((req, res, next) => {
+  if (req.method === 'POST' && /^\/api\/admin\/restore\/?$/i.test(req.path)) return next();
+  parseJson(req, res, next);
+});
 
 // Memory-bounded rate limiters for public internet protection
+const loginIpLimiter = createRateLimiter({ windowMs: 60_000, max: 30 });
 const loginRateLimiter = createRateLimiter({ windowMs: 60_000, max: 10 });
 const setupRateLimiter = createRateLimiter({ windowMs: 300_000, max: 5 });
 const writeRateLimiter = createRateLimiter({ windowMs: 60_000, max: 180 });
@@ -164,6 +170,7 @@ interface DbUserRow {
   full_name: string;
   email: string;
   password_hash: string;
+  must_change_password: number;
   role: UserRole;
   group_name: string;
   responsibilities_json: string;
@@ -188,10 +195,20 @@ function mapUserRow(row: DbUserRow): UserAccount {
     groupName: row.group_name,
     responsibilities,
     isActive: row.is_active === 1,
+    mustChangePassword: row.must_change_password === 1,
     isDemo: row.is_demo === 1,
     createdAt: row.created_at,
   };
 }
+
+const userRoles = new Set(['representative', 'deputy', 'coordinator', 'student']);
+const responsibilityKeys = new Set(['lectures', 'assignments', 'files', 'announcements', 'requests', 'students', 'permissions', 'backup']);
+const isBlockedPassword = (value: unknown) =>
+  typeof value === 'string' && /^(student|demo)@2026$/i.test(value.trim());
+const isValidPassword = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length >= 8 && value.length <= 256 && !isBlockedPassword(value);
+const validResponsibilities = (value: unknown) =>
+  Array.isArray(value) && value.every(key => responsibilityKeys.has(key));
 
 function createSessionToken(userId: string): string {
   const rawToken = crypto.randomBytes(32).toString('hex');
@@ -230,7 +247,7 @@ function getAuthenticatedUser(req: express.Request): UserAccount | null {
     .prepare('SELECT * FROM users WHERE id = ? AND is_active = 1')
     .get(session.user_id) as DbUserRow | undefined;
 
-  if (!userRow) return null;
+  if (!userRow || Boolean(userRow.is_demo) !== isDemoModeEnabled()) return null;
   return mapUserRow(userRow);
 }
 
@@ -242,6 +259,10 @@ function requireAuth(
   const user = getAuthenticatedUser(req);
   if (!user) {
     res.status(401).json({ error: 'يرجى تسجيل الدخول للوصول إلى هذه الخدمة.' });
+    return;
+  }
+  if (user.mustChangePassword && !['/api/auth/profile', '/api/auth/logout', '/api/auth/logout-all'].includes(req.path.toLowerCase().replace(/\/$/, ''))) {
+    res.status(403).json({ error: 'غيّر كلمة المرور الأولية لمتابعة استخدام التطبيق.' });
     return;
   }
   (req as express.Request & { user: UserAccount }).user = user;
@@ -297,7 +318,7 @@ app.get('/api/auth/status', (req, res) => {
   res.json({
     user,
     hasProductionRepresentative: prodRepCount > 0,
-    requiresSetupPasscode: Boolean(process.env.DBL_ADMIN_SETUP_CODE),
+    requiresSetupPasscode: !demoAllowed && (process.env.DBL_ADMIN_SETUP_CODE?.trim().length ?? 0) >= 32,
     demoEnabled: demoAllowed,
     demoAccounts,
   });
@@ -305,13 +326,14 @@ app.get('/api/auth/status', (req, res) => {
 
 app.post('/api/auth/login', (req, res) => {
   const { identifier, password } = req.body || {};
-  if (!identifier || !password) {
+  if (typeof identifier !== 'string' || !identifier.trim() || identifier.length > 254 ||
+      typeof password !== 'string' || !password || password.length > 256) {
     res.status(400).json({ error: 'يرجى إدخال الرقم الجامعي أو البريد الإلكتروني وكلمة المرور.' });
     return;
   }
 
   const rateKey = `${req.ip || 'local'}:${String(identifier).trim().toLowerCase()}`;
-  if (!loginRateLimiter.allow(rateKey)) {
+  if (!loginIpLimiter.allow(req.ip || 'unknown') || !loginRateLimiter.allow(rateKey)) {
     res.status(429).json({
       error: 'تم تجاوز الحد المسموح لمحاولات تسجيل الدخول. يرجى الانتظار دقيقة واحدة.',
     });
@@ -323,12 +345,12 @@ app.post('/api/auth/login', (req, res) => {
     .prepare('SELECT * FROM users WHERE (LOWER(email) = LOWER(?) OR university_id = ?)')
     .get(cleanId, cleanId) as DbUserRow | undefined;
 
-  if (!userRow || !verifyPassword(String(password), userRow.password_hash)) {
+  if (!userRow || (!userRow.is_demo && isBlockedPassword(password)) || !verifyPassword(String(password), userRow.password_hash)) {
     res.status(401).json({ error: 'بيانات الدخول غير صحيحة.' });
     return;
   }
 
-  if (userRow.is_demo === 1 && !isDemoModeEnabled()) {
+  if (Boolean(userRow.is_demo) !== isDemoModeEnabled()) {
     res.status(403).json({ error: 'الحسابات التجريبية معطّلة في بيئة الإنتاج.' });
     return;
   }
@@ -384,14 +406,17 @@ app.post('/api/auth/setup-production-rep', (req, res) => {
   }
 
   const { universityId, fullName, email, password, groupName, setupCode } = req.body || {};
-  if (process.env.DBL_ADMIN_SETUP_CODE) {
-    if (!timingSafeStringEqual(String(setupCode || ''), process.env.DBL_ADMIN_SETUP_CODE)) {
-      res.status(403).json({ error: 'رمز الإعداد الأولي غير صحيح.' });
-      return;
-    }
+  const configuredCode = process.env.DBL_ADMIN_SETUP_CODE?.trim();
+  if (isDemoModeEnabled() || !configuredCode || configuredCode.length < 32) {
+    res.status(503).json({ error: 'إعداد المندوب يتطلب بيئة فعلية ورمز إعداد سري بطول 32 حرفاً على الأقل.' });
+    return;
+  }
+  if (!timingSafeStringEqual(String(setupCode || ''), configuredCode)) {
+    res.status(403).json({ error: 'رمز الإعداد الأولي غير صحيح.' });
+    return;
   }
 
-  if (!universityId || !fullName || !email || !password || String(password).length < 8) {
+  if (!universityId || !fullName || !email || !password || !isValidPassword(password)) {
     res.status(400).json({
       error: 'يرجى تعبئة جميع الحقول المطلوبة والتأكد من أن كلمة المرور لا تقل عن 8 أحرف.',
     });
@@ -459,19 +484,31 @@ app.post('/api/auth/logout-all', requireAuth, (req, res) => {
 
 app.put('/api/auth/profile', requireAuth, (req, res) => {
   const user = (req as express.Request & { user: UserAccount }).user;
-  const { fullName, email, newPassword } = req.body || {};
+  const { fullName, email, newPassword, currentPassword } = req.body || {};
   if (!fullName || !email) {
     res.status(400).json({ error: 'الاسم الكامل والبريد الإلكتروني مطلوبان.' });
     return;
   }
 
+  const row = db.prepare('SELECT * FROM users WHERE id=?').get(user.id) as DbUserRow;
+  const changesCredentials = Boolean(newPassword) || String(email).trim() !== row.email;
+  if (changesCredentials && (typeof currentPassword !== 'string' || currentPassword.length > 256 ||
+      !verifyPassword(currentPassword, row.password_hash))) {
+    res.status(403).json({ error: 'أدخل كلمة المرور الحالية لتغيير بيانات الدخول.' });
+    return;
+  }
+  if (user.mustChangePassword && (!newPassword || currentPassword === newPassword)) {
+    res.status(400).json({ error: 'اختر كلمة مرور مختلفة عن الرمز الأولي.' });
+    return;
+  }
+
   try {
-    if (newPassword && String(newPassword).trim().length > 0) {
-      if (String(newPassword).length < 8) {
+    if (newPassword) {
+      if (!isValidPassword(newPassword)) {
         res.status(400).json({ error: 'كلمة المرور الجديدة يجب ألا تقل عن 8 أحرف.' });
         return;
       }
-      db.prepare('UPDATE users SET full_name = ?, email = ?, password_hash = ? WHERE id = ?').run(
+      db.prepare('UPDATE users SET full_name = ?, email = ?, password_hash = ?, must_change_password = 0 WHERE id = ?').run(
         String(fullName).trim(),
         String(email).trim(),
         hashPassword(String(newPassword)),
@@ -494,6 +531,7 @@ app.put('/api/auth/profile', requireAuth, (req, res) => {
     const updated = mapUserRow(
       db.prepare('SELECT * FROM users WHERE id = ?').get(user.id) as DbUserRow
     );
+    logAudit(user, 'UPDATE_PROFILE', 'user', user.id, 'تحديث الملف الشخصي');
     res.json({ user: updated });
   } catch {
     res.status(400).json({ error: 'تعذر تحديث الملف الشخصي (قد يكون البريد مستخدماً).' });
@@ -635,6 +673,17 @@ app.get('/api/lectures', requireAuth, (_req, res) => {
   res.json({ lectures, conflicts });
 });
 
+function validLectureInput(course: unknown, day: unknown, start: unknown, end: unknown,
+  location: unknown, instructor: unknown, type: unknown, status: unknown): boolean {
+  return typeof course === 'string' && Boolean(db.prepare('SELECT 1 FROM courses WHERE id=?').get(course)) &&
+    typeof day === 'number' && Number.isInteger(day) && day >= 0 && day <= 5 &&
+    typeof start === 'string' && typeof end === 'string' && /^\d{2}:\d{2}$/.test(start) && /^\d{2}:\d{2}$/.test(end) &&
+    timeToMinutes(start) >= 0 && timeToMinutes(end) > timeToMinutes(start) &&
+    typeof location === 'string' && Boolean(location.trim()) && typeof instructor === 'string' && Boolean(instructor.trim()) &&
+    (type === undefined || ['lecture', 'lab', 'tutorial'].includes(String(type))) &&
+    (status === undefined || ['official', 'proposed', 'confirmed_temp', 'cancelled'].includes(String(status)));
+}
+
 app.post('/api/lectures', requireAuth, (req, res) => {
   const user = (req as express.Request & { user: UserAccount }).user;
   if (!hasPermission(user, 'lectures')) {
@@ -655,7 +704,7 @@ app.post('/api/lectures', requireAuth, (req, res) => {
     notes,
   } = req.body || {};
 
-  if (!courseId || dayOfWeek === undefined || !startTime || !endTime || !location || !instructor) {
+  if (!validLectureInput(courseId, dayOfWeek, startTime, endTime, location, instructor, lectureType, status)) {
     res.status(400).json({ error: 'يرجى استكمال جميع بيانات المحاضرة (المادة، اليوم، الوقت، القاعة، المدرس).' });
     return;
   }
@@ -705,6 +754,10 @@ app.put('/api/lectures/:id', requireAuth, (req, res) => {
     status,
     notes,
   } = req.body || {};
+
+  if (!validLectureInput(courseId, dayOfWeek, startTime, endTime, location, instructor, lectureType, status)) {
+    return res.status(400).json({ error: 'تحقق من المادة واليوم ووقتي بداية المحاضرة ونهايتها.' });
+  }
 
   db.prepare(
     `UPDATE lectures
@@ -774,6 +827,7 @@ app.get('/api/assignments', requireAuth, (req, res) => {
     confirmation_status: 'confirmed_instructor' | 'confirmed_rep' | 'unconfirmed_student';
     source_note: string;
     attachment_name?: string;
+    attachment_file_id?: string;
     created_by: string;
     creator_name?: string;
     personal_status?: 'not_started' | 'in_progress' | 'completed';
@@ -801,6 +855,7 @@ app.get('/api/assignments', requireAuth, (req, res) => {
       confirmationStatus: r.confirmation_status,
       sourceNote: r.source_note,
       attachmentName: r.attachment_name,
+      attachmentFileId: r.attachment_file_id,
       createdBy: r.created_by,
       creatorName: r.creator_name,
       personalStatus: r.personal_status || 'not_started',
@@ -827,6 +882,7 @@ app.post('/api/assignments', requireAuth, (req, res) => {
     confirmationStatus,
     sourceNote,
     attachmentName,
+    attachmentFileId,
   } = req.body || {};
 
   if (!courseId || !title || !dueDate) {
@@ -834,12 +890,22 @@ app.post('/api/assignments', requireAuth, (req, res) => {
     return;
   }
 
+  const group = String(targetGroup || 'ALL').trim();
+  const attachment = attachmentFileId && typeof attachmentFileId === 'string'
+    ? db.prepare('SELECT * FROM library_files WHERE id=? AND course_id=?').get(attachmentFileId, String(courseId)) as
+      { id: string; file_name: string; target_group: string } | undefined
+    : undefined;
+  const attachmentIsPublic = ['ALL', 'عام'].includes(attachment?.target_group.trim().toUpperCase() ?? '');
+  if (attachmentFileId && (!attachment ||
+      (!attachmentIsPublic && attachment.target_group.trim().toUpperCase() !== group.toUpperCase()))) {
+    return res.status(400).json({ error: 'اختر مرفقاً من مكتبة المقرر متاحاً لمجموعة التكليف.' });
+  }
   const id = `asg-${crypto.randomUUID().slice(0, 8)}`;
   const publishedAt = new Date().toISOString().slice(0, 10);
 
   db.prepare(
-    `INSERT INTO assignments (id, course_id, title, description, instructor, published_at, due_date, target_group, general_status, confirmation_status, source_note, attachment_name, created_by, is_demo)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO assignments (id, course_id, title, description, instructor, published_at, due_date, target_group, general_status, confirmation_status, source_note, attachment_name, created_by, is_demo, attachment_file_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     String(courseId),
@@ -852,9 +918,10 @@ app.post('/api/assignments', requireAuth, (req, res) => {
     String(generalStatus || 'active'),
     String(confirmationStatus || 'confirmed_rep'),
     String(sourceNote || '').trim(),
-    attachmentName ? String(attachmentName).trim() : null,
+    attachment?.file_name ?? (attachmentName ? String(attachmentName).trim() : null),
     user.id,
-    user.isDemo ? 1 : 0
+    user.isDemo ? 1 : 0,
+    attachment?.id ?? null
   );
 
   logAudit(user, 'CREATE_ASSIGNMENT', 'assignment', id, `نشر تكليف: ${title}`);
@@ -869,6 +936,10 @@ app.put('/api/assignments/:id/progress', requireAuth, (req, res) => {
     return;
   }
 
+  const target = db.prepare('SELECT target_group FROM assignments WHERE id=?').get(req.params.id) as { target_group: string } | undefined;
+  if (!target || !(hasPermission(user, 'assignments') || doGroupsOverlap(target.target_group, user.groupName))) {
+    return res.status(404).json({ error: 'السجل غير متاح لهذا الحساب.' });
+  }
   db.prepare(
     `INSERT OR REPLACE INTO assignment_progress (assignment_id, student_id, personal_status, updated_at)
      VALUES (?, ?, ?, ?)`
@@ -985,6 +1056,10 @@ app.post('/api/announcements', requireAuth, (req, res) => {
 
 app.post('/api/announcements/:id/read', requireAuth, (req, res) => {
   const user = (req as express.Request & { user: UserAccount }).user;
+  const target = db.prepare('SELECT target_group FROM announcements WHERE id=?').get(req.params.id) as { target_group: string } | undefined;
+  if (!target || !(hasPermission(user, 'announcements') || doGroupsOverlap(target.target_group, user.groupName))) {
+    return res.status(404).json({ error: 'السجل غير متاح لهذا الحساب.' });
+  }
   db.prepare(
     `INSERT OR REPLACE INTO announcement_reads (announcement_id, user_id, read_at)
      VALUES (?, ?, ?)`
@@ -1056,10 +1131,10 @@ app.get('/api/requests', requireAuth, (req, res) => {
     return false;
   });
 
-  const result = visible.map((r) => {
-    const history = db
-      .prepare('SELECT * FROM request_history WHERE request_id = ? ORDER BY created_at ASC')
-      .all(r.id) as Array<{
+  const visibleIds = JSON.stringify(visible.map(row => row.id));
+    const historyRows = db
+      .prepare('SELECT * FROM request_history WHERE request_id IN (SELECT value FROM json_each(?)) ORDER BY created_at ASC')
+      .all(visibleIds) as Array<{
       id: string;
       request_id: string;
       actor_id: string;
@@ -1071,18 +1146,15 @@ app.get('/api/requests', requireAuth, (req, res) => {
       created_at: string;
     }>;
 
-    // Only authorized request managers/representatives can view the full list of endorsers
-    let endorsements = undefined;
-    if (canManageRequests) {
-      const endRows = db
+    const endorsementRows = canManageRequests ? db
         .prepare(
           `SELECT re.*, u.full_name as student_name, u.university_id, u.group_name
            FROM request_endorsements re
            JOIN users u ON u.id = re.student_id
-           WHERE re.request_id = ?
+           WHERE re.request_id IN (SELECT value FROM json_each(?))
            ORDER BY re.created_at ASC`
         )
-        .all(r.id) as Array<{
+        .all(visibleIds) as Array<{
         id: string;
         request_id: string;
         student_id: string;
@@ -1091,8 +1163,16 @@ app.get('/api/requests', requireAuth, (req, res) => {
         group_name: string;
         request_version_hash: string;
         created_at: string;
-      }>;
+      }> : [];
 
+
+  const historiesByRequest = Map.groupBy(historyRows, row => row.request_id);
+  const endorsementsByRequest = Map.groupBy(endorsementRows, row => row.request_id);
+  const result = visible.map((r) => {
+    const history = historiesByRequest.get(r.id) ?? [];
+    let endorsements = undefined;
+    if (canManageRequests) {
+      const endRows = endorsementsByRequest.get(r.id) ?? [];
       endorsements = endRows.map((e) => ({
         id: e.id,
         requestId: e.request_id,
@@ -1165,15 +1245,16 @@ app.post('/api/requests', requireAuth, (req, res) => {
 
   const id = `req-${crypto.randomUUID().slice(0, 8)}`;
   const count = (db.prepare('SELECT COUNT(*) as cnt FROM requests').get() as { cnt: number }).cnt + 1;
-  const referenceNumber = `DBL-2026-${String(count).padStart(3, '0')}-${crypto
-    .randomBytes(1)
+  const referenceNumber = `DBL-${new Date().getUTCFullYear()}-${String(count).padStart(3, '0')}-${crypto
+    .randomBytes(4)
     .toString('hex')
     .toUpperCase()}`;
   const now = new Date().toISOString();
   const versionHash = computeRequestVersionHash(
     String(subject),
     String(details),
-    String(proposedSolution || '')
+    String(proposedSolution || ''),
+    String(targetAuthority)
   );
 
   const status: RequestStatus =
@@ -1263,10 +1344,14 @@ app.put('/api/requests/:id', requireAuth, (req, res) => {
   }
 
   const { targetAuthority, subject, details, proposedSolution, confirmResetEndorsements } = req.body || {};
+  if (![targetAuthority, subject, details].every(value => typeof value === 'string' && value.trim())) {
+    return res.status(400).json({ error: 'الجهة والموضوع والتفاصيل مطلوبة.' });
+  }
   const newHash = computeRequestVersionHash(
     String(subject || ''),
     String(details || ''),
-    String(proposedSolution || '')
+    String(proposedSolution || ''),
+    String(targetAuthority)
   );
 
   const endorsementCount = (
@@ -1276,7 +1361,7 @@ app.put('/api/requests/:id', requireAuth, (req, res) => {
   ).cnt;
 
   const needsReset = requiresEndorsementResetOnEdit(existing.version_hash, newHash, endorsementCount);
-  if (needsReset && !confirmResetEndorsements) {
+  if (needsReset && confirmResetEndorsements !== true) {
     res.status(409).json({
       requiresConfirmation: true,
       error:
@@ -1424,6 +1509,7 @@ app.post('/api/requests/:id/endorse', requireAuth, (req, res) => {
     new Date().toISOString()
   );
 
+  logAudit(user, 'ENDORSE_REQUEST', 'request', existing.id, 'تأييد الطلب');
   res.status(201).json({ ok: true });
 });
 
@@ -1444,10 +1530,11 @@ app.delete('/api/requests/:id/endorse', requireAuth, (req, res) => {
     return;
   }
 
-  db.prepare('DELETE FROM request_endorsements WHERE request_id = ? AND student_id = ?').run(
-    existing.id,
-    user.id
-  );
+  db.transaction(() => {
+    if (db.prepare('DELETE FROM request_endorsements WHERE request_id = ? AND student_id = ?').run(existing.id, user.id).changes) {
+      logAudit(user, 'WITHDRAW_ENDORSEMENT', 'request', existing.id, 'سحب تأييد الطلب');
+    }
+  })();
   res.json({ ok: true });
 });
 
@@ -1465,7 +1552,10 @@ app.get('/api/users', requireAuth, (req, res) => {
     res.json(
       rows
         .filter((r) => r.role !== 'student' || r.id === user.id)
-        .map(mapUserRow)
+        .map(row => {
+          const member = mapUserRow(row);
+          return row.id === user.id ? member : { ...member, email: '', universityId: '', responsibilities: [] };
+        })
     );
     return;
   }
@@ -1481,7 +1571,9 @@ app.post('/api/users', requireAuth, (req, res) => {
   }
 
   const { universityId, fullName, email, password, groupName, role, responsibilities } = req.body || {};
-  if (!universityId || !fullName || !email || !password) {
+  if (!universityId || !fullName || !email || !isValidPassword(password) ||
+      (role !== undefined && !userRoles.has(role)) ||
+      (responsibilities !== undefined && !validResponsibilities(responsibilities))) {
     res.status(400).json({ error: 'الرقم الجامعي والاسم والبريد وكلمة المرور الأولية حقول مطلوبة.' });
     return;
   }
@@ -1504,7 +1596,7 @@ app.post('/api/users', requireAuth, (req, res) => {
       hashPassword(String(password)),
       targetRole,
       String(groupName || 'A').trim(),
-      JSON.stringify(Array.isArray(responsibilities) ? responsibilities : []),
+      JSON.stringify(actor.role === 'representative' && targetRole !== 'student' && Array.isArray(responsibilities) ? responsibilities : []),
       actor.isDemo ? 1 : 0,
       new Date().toISOString()
     );
@@ -1530,7 +1622,19 @@ app.put('/api/users/:id', requireAuth, (req, res) => {
     return;
   }
 
-  // Only Representative can change roles or permissions
+  if (actor.isDemo !== Boolean(target.is_demo) || (actor.role !== 'representative' &&
+      (target.role !== 'student' || !hasPermission(actor, 'students') || resetPassword !== undefined))) {
+    res.status(403).json({ error: 'لا تملك صلاحية تعديل هذا الحساب أو بيانات دخوله.' });
+    return;
+  }
+  if ((role !== undefined && !userRoles.has(role)) ||
+      (responsibilities !== undefined && !validResponsibilities(responsibilities)) ||
+      (isActive !== undefined && typeof isActive !== 'boolean') ||
+      (resetPassword !== undefined && resetPassword !== true && !isValidPassword(resetPassword))) {
+    res.status(400).json({ error: 'قيمة غير صالحة في بيانات العضو.' });
+    return;
+  }
+
   const nextRole =
     actor.role === 'representative' && role ? String(role) : target.role;
   const nextResps =
@@ -1538,34 +1642,35 @@ app.put('/api/users/:id', requireAuth, (req, res) => {
       ? JSON.stringify(responsibilities)
       : target.responsibilities_json;
 
-  db.prepare(
-    `UPDATE users
-     SET full_name = ?, group_name = ?, role = ?, responsibilities_json = ?, is_active = ?
-     WHERE id = ?`
-  ).run(
-    String(fullName || target.full_name).trim(),
-    String(groupName || target.group_name).trim(),
-    nextRole,
-    nextResps,
-    isActive === undefined ? target.is_active : isActive ? 1 : 0,
-    target.id
-  );
-
-  if (resetPassword && String(resetPassword).trim().length >= 6) {
-    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(
-      hashPassword(String(resetPassword).trim()),
-      target.id
-    );
+  const nextActive = isActive ?? Boolean(target.is_active);
+  if (target.role === 'representative' && target.is_active && (nextRole !== 'representative' || !nextActive) &&
+      !db.prepare("SELECT 1 FROM users WHERE id != ? AND role='representative' AND is_active=1 AND is_demo=? LIMIT 1").get(target.id, target.is_demo)) {
+    res.status(409).json({ error: 'يجب أن يبقى مندوب نشط في الدفعة.' });
+    return;
   }
 
-  logAudit(
-    actor,
-    'UPDATE_USER',
-    'user',
-    target.id,
-    `تحديث بيانات/صلاحيات العضو ${fullName || target.full_name} (الدور: ${nextRole})`
-  );
-  res.json({ ok: true });
+  const initialPassword = resetPassword === true ? crypto.randomBytes(18).toString('base64url') : resetPassword;
+  db.transaction(() => {
+    db.prepare(
+      `UPDATE users SET full_name=?, group_name=?, role=?, responsibilities_json=?, is_active=? WHERE id=?`
+    ).run(
+      String(fullName || target.full_name).trim(),
+      String(groupName || target.group_name).trim(),
+      nextRole,
+      nextResps,
+      Number(nextActive),
+      target.id
+    );
+    if (initialPassword) {
+      db.prepare('UPDATE users SET password_hash=?, must_change_password=1 WHERE id=?')
+        .run(hashPassword(initialPassword), target.id);
+    }
+    if (!nextActive || initialPassword || nextRole !== target.role || nextResps !== target.responsibilities_json) {
+      db.prepare('DELETE FROM sessions WHERE user_id=?').run(target.id);
+    }
+    logAudit(actor, 'UPDATE_USER', 'user', target.id, `تحديث بيانات العضو (الدور: ${nextRole})`);
+  })();
+  res.json({ ok: true, ...(resetPassword === true && { initialPassword }) });
 });
 
 app.post('/api/users/import-csv', requireAuth, (req, res) => {
@@ -1576,55 +1681,41 @@ app.post('/api/users/import-csv', requireAuth, (req, res) => {
   }
 
   const { csvText, defaultPassword } = req.body || {};
-  if (!csvText || typeof csvText !== 'string') {
-    res.status(400).json({ error: 'يرجى إدخال محتوى ملف CSV.' });
+  if (typeof csvText !== 'string' || !csvText || csvText.length > 100_000 || defaultPassword !== undefined) {
+    res.status(400).json({ error: 'أدخل قائمة CSV دون كلمة مرور مشتركة.' });
     return;
   }
-
-  const lines = csvText
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-
-  let imported = 0;
-  let skipped = 0;
-  const passHash = hashPassword(String(defaultPassword || 'Student@2026'));
-  const now = new Date().toISOString();
-
-  const insertStmt = db.prepare(
-    `INSERT OR IGNORE INTO users (id, university_id, full_name, email, password_hash, role, group_name, responsibilities_json, is_active, is_demo, created_at)
-     VALUES (?, ?, ?, ?, ?, 'student', ?, '[]', 1, ?, ?)`
+  const rows = parseRosterCsv(csvText);
+  if (!rows || rows.length > 250 || rows.some(([id, name, email]) => !id || !name || !email)) {
+    res.status(400).json({ error: 'صيغة CSV غير صالحة أو يتجاوز العدد 250 طالباً.' });
+    return;
+  }
+  const invitations: { universityId: string; initialPassword: string }[] = [];
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO users (id, university_id, full_name, email, password_hash, role, group_name, responsibilities_json, is_active, is_demo, created_at, must_change_password)
+     VALUES (?, ?, ?, ?, ?, 'student', ?, '[]', 1, ?, ?, 1)`
   );
-
-  const tx = db.transaction(() => {
-    for (const line of lines) {
-      const parts = line.split(',').map((p) => p.trim());
-      if (parts.length < 3) continue;
-      const [uniId, name, email, group = 'A'] = parts;
-      if (uniId.toLowerCase() === 'university_id' || uniId === 'الرقم الجامعي') continue;
-      const info = insertStmt.run(
-        `u-${crypto.randomUUID().slice(0, 8)}`,
-        uniId,
-        name,
-        email,
-        passHash,
-        group || 'A',
-        actor.isDemo ? 1 : 0,
-        now
-      );
-      if (info.changes > 0) imported++;
-      else skipped++;
+  const existing = db.prepare('SELECT 1 FROM users WHERE university_id=? OR LOWER(email)=LOWER(?)');
+  db.transaction(() => {
+    for (const [universityId, name, email, group] of rows) {
+      if (existing.get(universityId, email)) continue;
+      const initialPassword = crypto.randomBytes(18).toString('base64url');
+      const info = insert.run(crypto.randomUUID(), universityId, name, email, hashPassword(initialPassword), group || 'A',
+        Number(actor.isDemo), new Date().toISOString());
+      if (info.changes) invitations.push({ universityId, initialPassword });
     }
-  });
-
-  tx();
-  logAudit(actor, 'IMPORT_CSV_USERS', 'user', 'batch', `استيراد ${imported} طالب عبر CSV`);
-  res.json({ imported, skipped });
+    logAudit(actor, 'IMPORT_CSV_USERS', 'user', 'batch', `استيراد ${invitations.length} طالب عبر CSV`);
+  })();
+  res.json({ imported: invitations.length, skipped: rows.length - invitations.length, invitations });
 });
 
 // ==========================================
 // 7. TASKS & DELEGATION ROUTES
 // ==========================================
+
+function canSeeTask(user: UserAccount, assignee: string): boolean {
+  return user.role === 'representative' || user.role === 'deputy' || user.id === assignee;
+}
 
 app.get('/api/tasks', requireAuth, (req, res) => {
   const user = (req as express.Request & { user: UserAccount }).user;
@@ -1651,13 +1742,11 @@ app.get('/api/tasks', requireAuth, (req, res) => {
     is_demo: number;
   }>;
 
-  const visible =
-    user.role === 'student' ? rows.filter((r) => r.assigned_to === user.id) : rows;
+  const visible = rows.filter(row => canSeeTask(user, row.assigned_to));
 
-  const result = visible.map((r) => {
-    const comments = db
-      .prepare('SELECT * FROM task_comments WHERE task_id = ? ORDER BY created_at ASC')
-      .all(r.id) as Array<{
+    const commentRows = db
+      .prepare('SELECT * FROM task_comments WHERE task_id IN (SELECT value FROM json_each(?)) ORDER BY created_at ASC')
+      .all(JSON.stringify(visible.map(row => row.id))) as Array<{
       id: string;
       task_id: string;
       author_id: string;
@@ -1666,6 +1755,9 @@ app.get('/api/tasks', requireAuth, (req, res) => {
       created_at: string;
     }>;
 
+  const commentsByTask = Map.groupBy(commentRows, row => row.task_id);
+  const result = visible.map((r) => {
+    const comments = commentsByTask.get(r.id) ?? [];
     return {
       id: r.id,
       title: r.title,
@@ -1701,7 +1793,9 @@ app.post('/api/tasks', requireAuth, (req, res) => {
   }
 
   const { title, description, assignedTo, priority, dueDate } = req.body || {};
-  if (!title || !assignedTo || !dueDate) {
+  if (!title || !assignedTo || !dueDate ||
+      !db.prepare('SELECT 1 FROM users WHERE id=? AND is_active=1').get(String(assignedTo)) ||
+      (priority && !['low', 'medium', 'high', 'urgent'].includes(priority))) {
     res.status(400).json({ error: 'عنوان المهمة، المسؤول، والموعد النهائي حقول مطلوبة.' });
     return;
   }
@@ -1747,6 +1841,11 @@ app.put('/api/tasks/:id', requireAuth, (req, res) => {
   }
 
   const { status, priority, assignedTo } = req.body || {};
+  if ((status && !['new', 'in_progress', 'awaiting_review', 'completed', 'blocked'].includes(status)) ||
+      (priority && !['low', 'medium', 'high', 'urgent'].includes(priority)) ||
+      (assignedTo && !db.prepare('SELECT 1 FROM users WHERE id=? AND is_active=1').get(String(assignedTo)))) {
+    return res.status(400).json({ error: 'حالة المهمة أو المسؤول غير صالح.' });
+  }
   if (status) {
     db.prepare('UPDATE tasks SET status = ? WHERE id = ?').run(String(status), existing.id);
   }
@@ -1769,6 +1868,8 @@ app.post('/api/tasks/:id/comments', requireAuth, (req, res) => {
     return;
   }
 
+  const task = db.prepare('SELECT assigned_to FROM tasks WHERE id=?').get(req.params.id) as { assigned_to: string } | undefined;
+  if (!task || !canSeeTask(user, task.assigned_to)) return res.sendStatus(404);
   const id = `tc-${crypto.randomUUID().slice(0, 8)}`;
   db.prepare(
     `INSERT INTO task_comments (id, task_id, author_id, author_name, content, created_at)
@@ -1959,6 +2060,7 @@ app.post('/api/files/:id/download-ticket', requireAuth, (req, res) => {
       fileId: row.id,
       userId: user.id,
       exp: Date.now() + expiresInSeconds * 1000,
+      sessionHash: hashSessionToken(req.headers.authorization!.slice(7).trim()),
     },
     TICKET_SIGNING_SECRET
   );
@@ -1980,17 +2082,19 @@ app.get('/api/files/:id/download', (req, res) => {
       req.params.id,
       TICKET_SIGNING_SECRET
     );
-    if (verified.valid && verified.userId) {
+    if (verified.valid && verified.userId && verified.sessionHash &&
+        db.prepare('SELECT 1 FROM sessions WHERE token=? AND user_id=? AND expires_at > ?')
+          .get(verified.sessionHash, verified.userId, new Date().toISOString())) {
       const userRow = db
         .prepare('SELECT * FROM users WHERE id = ? AND is_active = 1')
         .get(verified.userId) as DbUserRow | undefined;
-      if (userRow) {
+      if (userRow && !userRow.must_change_password && Boolean(userRow.is_demo) === isDemoModeEnabled()) {
         user = mapUserRow(userRow);
       }
     }
   }
 
-  if (!user) {
+  if (!user || user.mustChangePassword) {
     res.status(401).json({ error: 'يرجى تسجيل الدخول أو استخدام تذكرة تنزيل صالحة.' });
     return;
   }
@@ -2057,104 +2161,40 @@ app.delete('/api/files/:id', requireAuth, (req, res) => {
 
 app.get('/api/search', requireAuth, (req, res) => {
   const user = (req as express.Request & { user: UserAccount }).user;
-  const q = String(req.query.q || '').trim();
+  const q = String(req.query.q || '').trim().slice(0, 160);
   if (!q) {
     res.json({ results: [] });
     return;
   }
 
-  const pattern = `%${q}%`;
-  const results: Array<{
-    id: string;
-    type: 'course' | 'lecture' | 'assignment' | 'announcement' | 'file' | 'request';
-    title: string;
-    subtitle: string;
-    tab: string;
-  }> = [];
-
-  const courses = db
-    .prepare('SELECT id, code, name_ar, name_en, instructor FROM courses WHERE name_ar LIKE ? OR name_en LIKE ? OR code LIKE ? OR instructor LIKE ? LIMIT 5')
-    .all(pattern, pattern, pattern, pattern) as Array<{ id: string; code: string; name_ar: string; name_en: string; instructor: string }>;
-  for (const c of courses) {
-    results.push({
-      id: c.id,
-      type: 'course',
-      title: `${c.name_ar} (${c.code})`,
-      subtitle: `${c.name_en} · ${c.instructor}`,
-      tab: 'schedule',
-    });
-  }
-
-  const assignments = db
-    .prepare('SELECT id, title, instructor, target_group, due_date FROM assignments WHERE title LIKE ? OR description LIKE ? LIMIT 8')
-    .all(pattern, pattern) as Array<{ id: string; title: string; instructor: string; target_group: string; due_date: string }>;
-  for (const a of assignments) {
-    if (hasPermission(user, 'assignments') || doGroupsOverlap(a.target_group, user.groupName)) {
-      results.push({
-        id: a.id,
-        type: 'assignment',
-        title: a.title,
-        subtitle: `تكليف · موعد التسليم ${a.due_date}`,
-        tab: 'assignments',
-      });
-    }
-  }
-
-  const announcements = db
-    .prepare('SELECT id, title, category, target_group FROM announcements WHERE title LIKE ? OR content LIKE ? LIMIT 8')
-    .all(pattern, pattern) as Array<{ id: string; title: string; category: string; target_group: string }>;
-  for (const ann of announcements) {
-    if (hasPermission(user, 'announcements') || doGroupsOverlap(ann.target_group, user.groupName)) {
-      results.push({
-        id: ann.id,
-        type: 'announcement',
-        title: ann.title,
-        subtitle: `إعلان · المجموعة ${ann.target_group}`,
-        tab: 'announcements',
-      });
-    }
-  }
-
-  const files = db
-    .prepare('SELECT id, title, file_name, target_group FROM library_files WHERE title LIKE ? OR description LIKE ? OR file_name LIKE ? LIMIT 8')
-    .all(pattern, pattern, pattern) as Array<{ id: string; title: string; file_name: string; target_group: string }>;
-  for (const f of files) {
-    if (hasPermission(user, 'files') || doGroupsOverlap(f.target_group, user.groupName)) {
-      results.push({
-        id: f.id,
-        type: 'file',
-        title: f.title,
-        subtitle: `ملف · ${f.file_name}`,
-        tab: 'library',
-      });
-    }
-  }
-
-  const requests = db
-    .prepare('SELECT id, reference_number, subject, is_collective, status, created_by FROM requests WHERE subject LIKE ? OR details LIKE ? OR reference_number LIKE ? LIMIT 8')
-    .all(pattern, pattern, pattern) as Array<{
-    id: string;
-    reference_number: string;
-    subject: string;
-    is_collective: number;
-    status: string;
-    created_by: string;
-  }>;
-  for (const r of requests) {
-    const canSee =
-      hasPermission(user, 'requests') ||
-      r.created_by === user.id ||
-      (r.is_collective === 1 && r.status !== 'draft');
-    if (canSee) {
-      results.push({
-        id: r.id,
-        type: 'request',
-        title: `${r.reference_number}: ${r.subject}`,
-        subtitle: `معاملة · الحالة: ${r.status}`,
-        tab: 'requests',
-      });
-    }
-  }
+  const pattern = '%' + q + '%';
+  const group = user.groupName.trim().toUpperCase();
+  const groups = "(? OR UPPER(TRIM(target_group)) IN ('ALL', 'عام', ?) OR ? IN ('ALL', 'عام'))";
+  type SearchRow = { id: string; title: string; subtitle: string };
+  const find = (type: string, tab: string, select: string, params: (number | string)[]) =>
+    (db.prepare(select + ' ORDER BY title, id LIMIT 8').all(...params) as SearchRow[])
+      .map(row => ({ ...row, type, tab }));
+  const results = [
+    ...find('course', 'schedule', `SELECT id, name_ar || ' (' || code || ')' title, instructor subtitle
+      FROM courses WHERE name_ar LIKE ? OR name_en LIKE ? OR code LIKE ? OR instructor LIKE ?`,
+      [pattern, pattern, pattern, pattern]),
+    ...find('lecture', 'schedule', `SELECT l.id, c.name_ar || ' · ' || l.instructor title, l.location subtitle
+      FROM lectures l JOIN courses c ON c.id=l.course_id
+      WHERE c.name_ar LIKE ? OR l.instructor LIKE ? OR l.location LIKE ?`, [pattern, pattern, pattern]),
+    ...find('assignment', 'assignments', `SELECT id, title, due_date subtitle FROM assignments
+      WHERE (title LIKE ? OR description LIKE ?) AND ${groups}`, [pattern, pattern, Number(hasPermission(user, 'assignments')), group, group]),
+    ...find('announcement', 'announcements', `SELECT id, title, category subtitle FROM announcements
+      WHERE (title LIKE ? OR content LIKE ?) AND ${groups}`, [pattern, pattern, Number(hasPermission(user, 'announcements')), group, group]),
+    ...find('file', 'library', `SELECT id, title, file_name subtitle FROM library_files
+      WHERE (title LIKE ? OR description LIKE ? OR file_name LIKE ?) AND ${groups}`, [pattern, pattern, pattern, Number(hasPermission(user, 'files')), group, group]),
+    ...find('request', 'requests', `SELECT id, reference_number || ': ' || subject title, target_authority subtitle FROM requests
+      WHERE (subject LIKE ? OR details LIKE ? OR reference_number LIKE ?)
+      AND (? OR created_by=? OR (is_collective=1 AND status!='draft'))`,
+      [pattern, pattern, pattern, Number(hasPermission(user, 'requests')), user.id]),
+    ...find('task', 'tasks', `SELECT id, title, due_date subtitle FROM tasks
+      WHERE (title LIKE ? OR description LIKE ?) AND (? OR assigned_to=?)`,
+      [pattern, pattern, Number(user.role === 'representative' || user.role === 'deputy'), user.id]),
+  ];
 
   res.json({ results });
 });
@@ -2170,9 +2210,11 @@ app.get('/api/admin/audit-logs', requireAuth, (req, res) => {
     return;
   }
 
+  const offset = Number(req.query.offset ?? 0);
+  if (!Number.isSafeInteger(offset) || offset < 0) return res.sendStatus(400);
   const logs = db
-    .prepare('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 150')
-    .all() as Array<{
+    .prepare('SELECT * FROM audit_logs ORDER BY created_at DESC, id DESC LIMIT 150 OFFSET ?')
+    .all(offset) as Array<{
     id: string;
     actor_id: string;
     actor_name: string;
@@ -2199,55 +2241,28 @@ app.get('/api/admin/audit-logs', requireAuth, (req, res) => {
   );
 });
 
-app.get('/api/admin/backup', requireAuth, (req, res) => {
+function requireRepresentative(req: express.Request, res: express.Response, next: express.NextFunction) {
   const user = (req as express.Request & { user: UserAccount }).user;
-  if (!hasPermission(user, 'backup')) {
-    res.status(403).json({ error: 'ليس لديك صلاحية تصدير النسخ الاحتياطية.' });
-    return;
+  if (user.role !== 'representative') {
+    return res.status(403).json({ error: 'هذه العملية متاحة لمندوب الدفعة فقط.' });
   }
+  next();
+}
 
-  const tables = [
-    'users',
-    'courses',
-    'lectures',
-    'assignments',
-    'assignment_progress',
-    'announcements',
-    'announcement_reads',
-    'requests',
-    'request_endorsements',
-    'request_history',
-    'tasks',
-    'task_comments',
-    'library_files',
-    'audit_logs',
-  ] as const;
-
-  const data: Record<string, unknown[]> = {};
-  for (const t of tables) {
-    data[t] = db.prepare(`SELECT * FROM ${t}`).all();
+app.get('/api/admin/backup', requireAuth, requireRepresentative, (req, res) => {
+  const user = (req as express.Request & { user: UserAccount }).user;
+  try {
+    const backup = exportBackup();
+    logAudit(user, 'EXPORT_BACKUP', 'system', 'backup', 'تصدير نسخة احتياطية شاملة مع المرفقات');
+    res.json(backup);
+  } catch {
+    res.status(409).json({ error: 'تعذر التصدير: راجع المرفقات المفقودة أو حجم النسخة.' });
   }
-
-  const checksumSha256 = computeBackupChecksum(data);
-  logAudit(user, 'EXPORT_BACKUP', 'system', 'backup', 'تصدير نسخة احتياطية شاملة لقاعدة البيانات');
-  res.json({
-    app: 'DBL Campus',
-    version: '1.1.0',
-    exportedAt: new Date().toISOString(),
-    exportedBy: user.fullName,
-    checksumSha256,
-    tables: data,
-  });
 });
 
-app.get('/api/admin/backup/sqlite', requireAuth, async (req, res) => {
+app.get('/api/admin/backup/sqlite', requireAuth, requireRepresentative, async (req, res) => {
   const user = (req as express.Request & { user: UserAccount }).user;
-  if (!hasPermission(user, 'backup')) {
-    res.status(403).json({ error: 'ليس لديك صلاحية تصدير النسخة الثنائية لقاعدة البيانات.' });
-    return;
-  }
-
-  const snapshotName = `dbl_campus_backup_${Date.now()}.sqlite`;
+  const snapshotName = `dbl_campus_backup_${crypto.randomUUID()}.sqlite`;
   const snapshotPath = path.resolve(BACKUPS_DIR, snapshotName);
   if (!snapshotPath.startsWith(BACKUPS_DIR + path.sep)) {
     res.status(400).json({ error: 'مسار النسخ الاحتياطي غير صالح.' });
@@ -2271,73 +2286,20 @@ app.get('/api/admin/backup/sqlite', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/admin/restore', requireAuth, (req, res) => {
+app.post('/api/admin/restore', requireAuth, requireRepresentative, express.json({ limit: backupBodyLimit }), (req, res) => {
   const user = (req as express.Request & { user: UserAccount }).user;
-  if (!hasPermission(user, 'backup')) {
-    res.status(403).json({ error: 'ليس لديك صلاحية استعادة النسخ الاحتياطية.' });
+  const row = db.prepare('SELECT password_hash FROM users WHERE id=?').get(user.id) as { password_hash: string };
+  const { currentPassword, ...backup } = req.body || {};
+  if (typeof currentPassword !== 'string' || currentPassword.length > 256 || !verifyPassword(currentPassword, row.password_hash)) {
+    res.status(403).json({ error: 'أدخل كلمة المرور الحالية لاستعادة النسخة.' });
     return;
   }
-
-  const { tables, checksumSha256 } = req.body || {};
-  if (!tables || typeof tables !== 'object') {
-    res.status(400).json({ error: 'ملف النسخة الاحتياطية غير صالح.' });
-    return;
-  }
-
-  if (typeof checksumSha256 === 'string' && checksumSha256.trim().length > 0) {
-    const computed = computeBackupChecksum(tables as Record<string, unknown[]>);
-    if (!timingSafeStringEqual(checksumSha256.trim(), computed)) {
-      res.status(400).json({
-        error: 'فشل التحقق من سلامة ملف النسخة الاحتياطية (SHA-256 غير مطابق — قد يكون الملف تالفاً أو معدّلاً).',
-      });
-      return;
-    }
-  }
-
   try {
-    db.pragma('foreign_keys = OFF');
-    const tx = db.transaction(() => {
-      const orderedTables = [
-        'users',
-        'courses',
-        'lectures',
-        'assignments',
-        'assignment_progress',
-        'announcements',
-        'announcement_reads',
-        'requests',
-        'request_endorsements',
-        'request_history',
-        'tasks',
-        'task_comments',
-        'library_files',
-      ];
-
-      for (const tableName of orderedTables) {
-        const rows = tables[tableName];
-        if (!Array.isArray(rows)) continue;
-        db.prepare(`DELETE FROM ${tableName}`).run();
-        if (rows.length === 0) continue;
-
-        const cols = Object.keys(rows[0]).filter((c) => /^[a-z_]+$/.test(c));
-        const placeholders = cols.map(() => '?').join(', ');
-        const stmt = db.prepare(
-          `INSERT OR REPLACE INTO ${tableName} (${cols.join(', ')}) VALUES (${placeholders})`
-        );
-        for (const r of rows) {
-          stmt.run(...cols.map((c) => r[c]));
-        }
-      }
-    });
-    tx();
-    db.pragma('foreign_keys = ON');
-    logAudit(user, 'RESTORE_BACKUP', 'system', 'restore', 'استعادة نسخة احتياطية لقاعدة البيانات بنجاح');
+    restoreBackup(backup, user.isDemo, () =>
+      logAudit(user, 'RESTORE_BACKUP', 'system', 'restore', 'استعادة قاعدة البيانات والمرفقات'));
     res.json({ ok: true });
-  } catch (err: unknown) {
-    db.pragma('foreign_keys = ON');
-    res.status(400).json({
-      error: `تعذر استعادة النسخة الاحتياطية: ${err instanceof Error ? err.message : 'خطأ في البيانات'}`,
-    });
+  } catch {
+    res.status(400).json({ error: 'تعذر الاستعادة. تحقق من إصدار النسخة وبصمتها وعلاقات البيانات والمرفقات.' });
   }
 });
 
@@ -2347,6 +2309,7 @@ app.post('/api/admin/demo-reset', requireAuth, (req, res) => {
     res.status(403).json({ error: 'هذا الإجراء متاح لمندوب الدفعة فقط.' });
     return;
   }
+  if (!isDemoModeEnabled() || !user.isDemo) return res.sendStatus(403);
   seedDemoEnvironment(true);
   logAudit(user, 'RESET_DEMO_DATA', 'system', 'demo', 'إعادة تهيئة البيانات التجريبية إلى حالتها الأصلية');
   res.json({ ok: true });
@@ -2358,6 +2321,7 @@ app.post('/api/admin/demo-purge', requireAuth, (req, res) => {
     res.status(403).json({ error: 'هذا الإجراء متاح لمندوب الدفعة فقط.' });
     return;
   }
+  if (!isDemoModeEnabled() || !user.isDemo) return res.sendStatus(403);
   purgeDemoData();
   logAudit(user, 'PURGE_DEMO_DATA', 'system', 'demo', 'إزالة جميع البيانات التجريبية دون المساس بالبيانات الفعلية');
   res.json({ ok: true });
@@ -2387,7 +2351,8 @@ function getSuggestedServerUrls(port: number): string[] {
 
   // Only expose local LAN interfaces outside strict internet-only production deployments
   if (!isProductionMode() || process.env.DBL_ALLOW_LAN_ORIGINS === 'true') {
-    const nets = os.networkInterfaces();
+    let nets: ReturnType<typeof os.networkInterfaces>;
+    try { nets = os.networkInterfaces(); } catch { return urls; }
     for (const entries of Object.values(nets)) {
       if (!entries) continue;
       for (const info of entries) {
@@ -2398,6 +2363,13 @@ function getSuggestedServerUrls(port: number): string[] {
     }
   }
   return Array.from(new Set(urls));
+}
+
+const releaseHashCache = new Map<string, { stamp: string; hash: string }>();
+function isApprovedMobileHash(platform: 'apk' | 'ipa', digest: string): boolean {
+  if (!isProductionMode()) return true;
+  const allowed = (platform === 'apk' ? process.env.DBL_ANDROID_RELEASE_SHA256 : process.env.DBL_IOS_RELEASE_SHA256)?.trim().toLowerCase();
+  return Boolean(allowed && /^[a-f0-9]{64}$/.test(allowed) && timingSafeStringEqual(allowed, digest));
 }
 
 function inspectMobileRelease(platform: 'apk' | 'ipa') {
@@ -2414,11 +2386,14 @@ function inspectMobileRelease(platform: 'apk' | 'ipa') {
     };
   }
   const stat = fs.statSync(filePath);
-  const hash = crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+  const stamp = `${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+  const cached = releaseHashCache.get(filePath);
+  const hash = cached?.stamp === stamp ? cached.hash : crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+  releaseHashCache.set(filePath, { stamp, hash });
   return {
     platform,
     fileName: meta.fileName,
-    available: true,
+    available: isApprovedMobileHash(platform, hash),
     sizeBytes: stat.size,
     updatedAt: stat.mtime.toISOString(),
     sha256: hash,
@@ -2473,7 +2448,17 @@ app.post(
       return;
     }
 
-    fs.writeFileSync(targetPath, buf);
+    const hash = crypto.createHash('sha256').update(buf).digest('hex');
+    if (!isApprovedMobileHash(platform, hash)) {
+      return res.status(403).json({ error: 'بصمة الحزمة ليست معتمدة للنشر.' });
+    }
+    const temporary = targetPath + '.' + crypto.randomUUID();
+    try {
+      fs.writeFileSync(temporary, buf, { flag: 'wx', mode: 0o600 });
+      fs.renameSync(temporary, targetPath);
+    } finally {
+      fs.rmSync(temporary, { force: true });
+    }
     logAudit(
       user,
       'UPLOAD_MOBILE_RELEASE',
@@ -2492,6 +2477,7 @@ app.get('/api/mobile/download/:platform', (req, res) => {
     return;
   }
 
+  if (!inspectMobileRelease(platform).available) return res.sendStatus(404);
   const meta = RELEASE_FILENAMES[platform];
   const filePath = path.resolve(RELEASES_DIR, meta.fileName);
   if (!filePath.startsWith(RELEASES_DIR + path.sep) || !fs.existsSync(filePath)) {
@@ -2607,6 +2593,13 @@ async function startServer(): Promise<void> {
   process.on('SIGINT', () => handleShutdown('SIGINT'));
 }
 
+app.use((error: { status?: number }, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) return next(error);
+  const status = error.status === 413 || error.status === 400 ? error.status : 500;
+  if (status === 500) console.error(error);
+  res.status(status).json({ error: status === 413 ? 'حجم الطلب يتجاوز الحد المسموح.' : 'تعذر معالجة الطلب.' });
+});
+
 if (process.env.DBL_SKIP_LISTEN !== '1') {
-  startServer();
+  startServer().catch(error => { console.error(error); process.exitCode = 1; });
 }

@@ -49,7 +49,7 @@
 ### الطريقة الثانية: التشغيل عبر الطرفية (Terminal / PowerShell)
 ```bash
 # 1. تثبيت الحزم البرمجية
-npm install
+npm ci --legacy-peer-deps
 
 # 2. تشغيل الخادم المركزي (Development / LAN Server)
 npm run dev
@@ -70,7 +70,7 @@ npm start
 npm test
 
 # تشغيل اختبارات التكامل الشاملة للخادم وقاعدة البيانات (25 سيناريو)
-npx --yes tsx --test src/server/integration.test.ts
+node --import tsx --test src/server/integration.test.ts
 ```
 
 ---

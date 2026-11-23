@@ -11,13 +11,12 @@ const CAPACITOR_ORIGINS = new Set([
   'capacitor://localhost',
   'ionic://localhost',
   'https://localhost',
-  'http://localhost',
 ]);
 
-function normalizeOrigin(raw: string): string | null {
+function normalizeOrigin(raw: string, httpsOnly = false): string | null {
   try {
     const parsed = new URL(raw.trim());
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    if (parsed.protocol !== 'https:' && (httpsOnly || parsed.protocol !== 'http:')) {
       return null;
     }
     return parsed.origin.toLowerCase();
@@ -37,7 +36,7 @@ export function isAllowedCorsOrigin(origin: string, opts: CorsCheckOptions = {})
 
   // Explicitly configured APP_URL (e.g. https://campus.example.edu)
   if (opts.appUrl) {
-    const normalizedApp = normalizeOrigin(opts.appUrl);
+    const normalizedApp = normalizeOrigin(opts.appUrl, opts.isProduction);
     if (normalizedApp && normalizedApp === lower) {
       return true;
     }
@@ -47,7 +46,7 @@ export function isAllowedCorsOrigin(origin: string, opts: CorsCheckOptions = {})
   if (opts.allowedOrigins) {
     const extras = opts.allowedOrigins
       .split(',')
-      .map((s) => normalizeOrigin(s))
+      .map((s) => normalizeOrigin(s, opts.isProduction))
       .filter((s): s is string => Boolean(s));
     if (extras.includes(lower)) {
       return true;
@@ -103,6 +102,7 @@ export interface DownloadTicketPayload {
   fileId: string;
   userId: string;
   exp: number;
+  sessionHash?: string;
 }
 
 export function createSignedDownloadTicket(
@@ -122,7 +122,7 @@ export function verifySignedDownloadTicket(
   expectedFileId: string,
   secret: string,
   nowMs = Date.now()
-): { valid: boolean; userId?: string } {
+): { valid: boolean; userId?: string; sessionHash?: string } {
   const parts = String(ticket || '').split('.');
   if (parts.length !== 2) return { valid: false };
   const [encoded, providedSig] = parts;
@@ -150,7 +150,7 @@ export function verifySignedDownloadTicket(
     ) {
       return { valid: false };
     }
-    return { valid: true, userId: parsed.userId };
+    return { valid: true, userId: parsed.userId, ...(parsed.sessionHash && { sessionHash: parsed.sessionHash }) };
   } catch {
     return { valid: false };
   }
@@ -249,7 +249,7 @@ export function buildSafeContentDisposition(fileName: string): string {
   return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encoded}`;
 }
 
-export function computeBackupChecksum(tables: Record<string, unknown[]>): string {
+export function computeBackupChecksum(tables: Record<string, unknown>): string {
   return crypto
     .createHash('sha256')
     .update(JSON.stringify(tables), 'utf8')

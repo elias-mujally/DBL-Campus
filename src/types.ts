@@ -19,6 +19,7 @@ export interface UserAccount {
   groupName: string; // 'A' | 'B' | 'C' | 'عام'
   responsibilities: ResponsibilityKey[];
   isActive: boolean;
+  mustChangePassword?: boolean;
   isDemo: boolean;
   createdAt: string;
 }
@@ -83,6 +84,7 @@ export interface Assignment {
   confirmationStatus: SourceConfirmationStatus;
   sourceNote: string;
   attachmentName?: string;
+  attachmentFileId?: string;
   attachmentUrl?: string;
   createdBy: string;
   creatorName?: string;

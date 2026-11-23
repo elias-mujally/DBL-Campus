@@ -10,17 +10,19 @@ import {
 import type {
   Assignment,
   Course,
+  LibraryFile,
   PersonalProgressStatus,
   SourceConfirmationStatus,
   UserAccount,
 } from '../types';
 import { hasPermission } from '../utils/domainLogic';
-import { apiFetch } from '../utils/api';
+import { apiFetch, downloadLibraryFile } from '../utils/api';
 
 interface AssignmentsViewProps {
   user: UserAccount;
   courses: Course[];
   assignments: Assignment[];
+  files: LibraryFile[];
   onRefresh: () => Promise<void>;
   notify: (msg: string, type?: 'success' | 'error') => void;
 }
@@ -42,6 +44,7 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
   user,
   courses,
   assignments,
+  files,
   onRefresh,
   notify,
 }) => {
@@ -62,7 +65,7 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
   const [confirmationStatus, setConfirmationStatus] =
     useState<SourceConfirmationStatus>('confirmed_instructor');
   const [sourceNote, setSourceNote] = useState('');
-  const [attachmentName, setAttachmentName] = useState('');
+  const [attachmentFileId, setAttachmentFileId] = useState('');
 
   const handleUpdatePersonalProgress = async (
     assignmentId: string,
@@ -107,14 +110,14 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
           targetGroup,
           confirmationStatus,
           sourceNote,
-          attachmentName: attachmentName || undefined,
+          attachmentFileId: attachmentFileId || undefined,
         }),
       });
       notify('تم نشر التكليف الدراسي بنجاح');
       setTitle('');
       setDescription('');
       setSourceNote('');
-      setAttachmentName('');
+      setAttachmentFileId('');
       setShowAddModal(false);
       await onRefresh();
     } catch (err: unknown) {
@@ -234,6 +237,8 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
             return (
               <div
                 key={asg.id}
+                id={'result-' + asg.id}
+                tabIndex={-1}
                 className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
@@ -273,10 +278,15 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
                     {CONFIRMATION_LABELS[asg.confirmationStatus]}
                     {asg.sourceNote ? ` (${asg.sourceNote})` : ''}
                   </span>
-                  {asg.attachmentName && (
+                  {asg.attachmentFileId ? (
+                    <button type="button" className="text-teal-700 underline" onClick={() => {
+                      downloadLibraryFile(asg.attachmentFileId!, asg.attachmentName || 'attachment')
+                        .catch(() => notify('تعذر تنزيل المرفق', 'error'));
+                    }}>تنزيل المرجع: {asg.attachmentName}</button>
+                  ) : asg.attachmentName && (
                     <span className="inline-flex items-center gap-1 font-mono text-teal-700 dark:text-teal-400">
                       <FileText className="w-3.5 h-3.5" />
-                      مرفق: {asg.attachmentName}
+                      مرجع: {asg.attachmentName}
                     </span>
                   )}
                   <span>نشر بواسطة: {asg.creatorName || 'منسق التكاليف'}</span>
@@ -460,6 +470,17 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2"
                 />
               </div>
+
+              <label className="block">
+                مرفق من مكتبة المقرر
+                <select value={attachmentFileId} onChange={event => setAttachmentFileId(event.target.value)}
+                  className="w-full rounded border px-3 py-2">
+                  <option value="">بدون مرفق</option>
+                  {files.filter(file => file.courseId === courseId &&
+                    (['ALL', 'عام'].includes(file.targetGroup) || file.targetGroup === targetGroup))
+                    .map(file => <option key={file.id} value={file.id}>{file.title}</option>)}
+                </select>
+              </label>
 
               <div className="pt-3 flex justify-end gap-2 border-t border-slate-200 dark:border-slate-800">
                 <button
