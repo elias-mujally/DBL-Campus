@@ -440,12 +440,12 @@ export const MobileAppsModal: React.FC<MobileAppsModalProps> = ({
                 </p>
               </div>
 
-              {/* Detected LAN Server Addresses */}
+              {/* Detected Public HTTPS / Server Addresses */}
               {releases && releases.lanUrls.length > 0 && (
                 <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 p-4 space-y-2 text-xs">
                   <div className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-200">
                     <Globe className="w-4 h-4 text-teal-600" />
-                    <span>عناوين الشبكة المحلية (LAN) لربط تطبيقات الطلاب بهذا الخادم:</span>
+                    <span>عناوين الخادم المتاحة لربط تطبيقات الطلاب:</span>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {releases.lanUrls.map((url) => (
@@ -469,27 +469,27 @@ export const MobileAppsModal: React.FC<MobileAppsModalProps> = ({
               <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-1.5">
                 <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-slate-100">
                   <Server className="w-4 h-4 text-teal-600" />
-                  <span>ربط تطبيق الهاتف بخادم الدفعة على الشبكة المحلية</span>
+                  <span>ربط تطبيق الهاتف بخادم الدفعة عبر الإنترنت (HTTPS)</span>
                 </div>
                 <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
-                  عند تشغيل التطبيق من ملف <strong>APK</strong> أو <strong>IPA</strong> على هاتفك، أدخل عنوان خادم المندوب على شبكة Wi-Fi المحلية (مثل{' '}
-                  <code className="font-mono" dir="ltr">
-                    http://192.168.1.15:3000
+                  عند تشغيل التطبيق من ملف <strong>APK</strong> أو <strong>IPA</strong> على هاتفك، أدخل رابط الاستضافة الآمن لخادم الدفعة عبر الإنترنت (مثل{' '}
+                  <code className="inline-block font-mono" dir="ltr">
+                    https://campus.example.edu
                   </code>
-                  ). اتركه فارغاً عند الاستخدام من المتصفح المباشر.
+                  ). اتركه فارغاً عند الاستخدام مباشرةً من المتصفح أو PWA.
                 </p>
               </div>
 
               <div>
                 <label className="block font-semibold mb-1.5 text-slate-800 dark:text-slate-200">
-                  عنوان الخادم المركزي (Server URL)
+                  عنوان الخادم المركزي (HTTPS Server URL)
                 </label>
                 <input
                   type="text"
                   dir="ltr"
                   value={serverUrlInput}
                   onChange={(e) => setServerUrlInput(e.target.value)}
-                  placeholder="http://192.168.1.15:3000"
+                  placeholder="https://campus.example.edu"
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 font-mono text-xs"
                 />
               </div>

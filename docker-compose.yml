@@ -1,0 +1,51 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dbl-campus-app
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      TRUST_PROXY: "1"
+      DBL_FORCE_HTTPS: "true"
+      DBL_DATA_DIR: /data
+      DBL_ALLOW_DEMO: ${DBL_ALLOW_DEMO:-false}
+      APP_URL: ${APP_URL:?Set APP_URL in .env e.g. https://campus.example.edu}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      DBL_ADMIN_SETUP_CODE: ${DBL_ADMIN_SETUP_CODE:?Set a strong DBL_ADMIN_SETUP_CODE in .env}
+      DBL_SESSION_SECRET: ${DBL_SESSION_SECRET:?Set a 32+ char random DBL_SESSION_SECRET in .env}
+    volumes:
+      - dbl_campus_data:/data
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: dbl-campus-caddy
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env e.g. campus.example.edu}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  dbl_campus_data:
+  caddy_data:
+  caddy_config:

@@ -11437,8 +11437,8 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 		return new ReactDOMRoot(options);
 	};
 }));
-// node_modules/react-dom/client.js
-var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+// \0vite/preload-helper.js
+var import_client = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
 		try {
@@ -11449,7 +11449,182 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	}
 	checkDCE();
 	module.exports = require_react_dom_client_production();
-}));
+})))();
+var scriptRel = "modulepreload";
+var assetsURL = function(dep) {
+	return "/" + dep;
+};
+var seen = {};
+var isCssPreloadUrl = function isCssPreloadUrl(url) {
+	return url.pathname.endsWith(".css");
+};
+var preloadOnce = function preloadOnce(seen, href, preload) {
+	if (href in seen) return seen[href];
+	const promise = preload();
+	if (!promise) {
+		seen[href] = void 0;
+		return;
+	}
+	const preloadPromise = promise.then(() => {
+		seen[href] = void 0;
+	}, (err) => {
+		seen[href] = void 0;
+		throw err;
+	});
+	seen[href] = preloadPromise;
+	return preloadPromise;
+};
+var __vitePreload = function preload(baseModule, deps, importerUrl) {
+	let promise = Promise.resolve();
+	if (deps && deps.length > 0) {
+		let preloadedHrefs;
+		const cspNonceMeta = document.querySelector("meta[property=csp-nonce]");
+		const cspNonce = cspNonceMeta?.nonce || cspNonceMeta?.getAttribute("nonce");
+		function allSettled(promises) {
+			return Promise.all(promises.map((p) => Promise.resolve(p).then((value) => ({
+				status: "fulfilled",
+				value
+			}), (reason) => ({
+				status: "rejected",
+				reason
+			}))));
+		}
+		function importMetaResolve(specifier) {
+			if (import.meta.resolve) return new URL(import.meta.resolve(specifier));
+			return new URL(
+				specifier,
+				/** #__KEEP__ */
+				import.meta.url
+			);
+		}
+		promise = allSettled(deps.map((depString) => {
+			depString = assetsURL(depString, importerUrl);
+			const dep = importMetaResolve(depString);
+			const isCss = isCssPreloadUrl(dep);
+			return preloadOnce(seen, dep.href, () => {
+				if (preloadedHrefs === void 0) {
+					preloadedHrefs = {
+						all: /* @__PURE__ */ new Set(),
+						styles: /* @__PURE__ */ new Set()
+					};
+					const links = document.getElementsByTagName("link");
+					for (let i = links.length - 1; i >= 0; i--) {
+						const link = links[i];
+						preloadedHrefs.all.add(link.href);
+						if (link.rel === "stylesheet") preloadedHrefs.styles.add(link.href);
+					}
+				}
+				if ((isCss ? preloadedHrefs.styles : preloadedHrefs.all).has(dep.href)) return;
+				const link = document.createElement("link");
+				link.rel = isCss ? "stylesheet" : scriptRel;
+				if (!isCss) link.as = "script";
+				link.crossOrigin = "";
+				link.href = dep.href;
+				if (cspNonce) link.setAttribute("nonce", cspNonce);
+				document.head.appendChild(link);
+				if (isCss) return new Promise((res, rej) => {
+					const handleSettle = (e) => {
+						link.removeEventListener("load", handleSettle);
+						link.removeEventListener("error", handleSettle);
+						if (e.type === "error") rej(/* @__PURE__ */ new Error(`Unable to preload CSS for ${dep}`));
+						else res(e);
+					};
+					link.addEventListener("load", handleSettle);
+					link.addEventListener("error", handleSettle);
+				});
+			});
+		}).filter((p) => p !== void 0));
+	}
+	function handlePreloadError(err) {
+		const e = new Event("vite:preloadError", { cancelable: true });
+		e.payload = err;
+		window.dispatchEvent(e);
+		if (!e.defaultPrevented) throw err;
+	}
+	return promise.then((res) => {
+		for (const item of res || []) {
+			if (item.status !== "rejected") continue;
+			handlePreloadError(item.reason);
+		}
+		return baseModule().catch(handlePreloadError);
+	});
+};
+// ../../@vite-plugin-pwa/virtual:pwa-register
+var autoUpdateMode = "true";
+var selfDestroying = "false";
+var auto = autoUpdateMode === "true";
+var autoDestroy = selfDestroying === "true";
+function registerSW(options = {}) {
+	const { immediate = false, onNeedReload, onNeedRefresh, onOfflineReady, onRegistered, onRegisteredSW, onRegisterError } = options;
+	let wb;
+	let registerPromise;
+	let sendSkipWaitingMessage;
+	const updateServiceWorker = async (_reloadPage = true) => {
+		await registerPromise;
+		if (!auto) sendSkipWaitingMessage?.();
+	};
+	async function register() {
+		if ("serviceWorker" in navigator) {
+			wb = await __vitePreload(async () => {
+				const { Workbox } = await import("./workbox-window.prod.es5-CzJxx9q2.js");
+				return { Workbox };
+			}, []).then(({ Workbox }) => {
+				return new Workbox("/sw.js", {
+					scope: "/",
+					type: "classic"
+				});
+			}).catch((e) => {
+				onRegisterError?.(e);
+			});
+			if (!wb) return;
+			sendSkipWaitingMessage = () => {
+				wb?.messageSkipWaiting();
+			};
+			if (!autoDestroy) {
+				if (auto) {
+					wb.addEventListener("activated", (event) => {
+						if (event.isUpdate || event.isExternal) {
+							if (onNeedReload) onNeedReload();
+							else window.location.reload();
+						}
+					});
+					wb.addEventListener("installed", (event) => {
+						if (!event.isUpdate) onOfflineReady?.();
+					});
+				} else {
+					let onNeedRefreshCalled = false;
+					const showSkipWaitingPrompt = () => {
+						onNeedRefreshCalled = true;
+						wb?.addEventListener("controlling", (event) => {
+							if (event.isUpdate) {
+								if (onNeedReload) onNeedReload();
+								else window.location.reload();
+							}
+						});
+						onNeedRefresh?.();
+					};
+					wb.addEventListener("installed", (event) => {
+						if (typeof event.isUpdate === "undefined") {
+							if (typeof event.isExternal !== "undefined") {
+								if (event.isExternal) showSkipWaitingPrompt();
+								else !onNeedRefreshCalled && onOfflineReady?.();
+							} else !onNeedRefreshCalled && onOfflineReady?.();
+						} else if (!event.isUpdate) onOfflineReady?.();
+					});
+					wb.addEventListener("waiting", showSkipWaitingPrompt);
+				}
+			}
+			wb.register({ immediate }).then((r) => {
+				if (onRegisteredSW) onRegisteredSW("/sw.js", r);
+				else onRegistered?.(r);
+			}).catch((e) => {
+				onRegisterError?.(e);
+			});
+		}
+	}
+	registerPromise = register();
+	return updateServiceWorker;
+}
 // node_modules/lucide-react/dist/esm/shared/src/utils.js
 /**
 * @license lucide-react v0.546.0 - ISC
@@ -12641,7 +12816,6 @@ var X = createLucideIcon("x", [["path", {
 	key: "d8bk6v"
 }]]);
 // src/utils/mobileConfig.ts
-var import_client = require_client();
 var SERVER_URL_STORAGE_KEY = "dbl_campus_server_url";
 /**
 * Validates and normalizes a user-provided LAN or remote server base URL.
@@ -12904,7 +13078,11 @@ var PWAInstallButton = () => {
 				}),
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "mt-4 space-y-3 text-sm text-slate-700 dark:text-slate-300 leading-relaxed",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "يمكنك تثبيت المنصة كتطبيق مستقل (PWA) للوصول السريع إلى الجدول الدراسي والتكاليف عبر الشبكة المحلية:" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("ol", {
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { children: [
+						"يمكنك تثبيت المنصة كتطبيق مستقل (PWA) يعمل عبر الإنترنت بـ ",
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "HTTPS" }),
+						" للوصول السريع إلى الجدول الدراسي والتكاليف من أي مكان:"
+					] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("ol", {
 						className: "list-decimal list-inside space-y-2 text-xs text-slate-600 dark:text-slate-400",
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { children: [
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "على الحاسوب (Chrome / Edge):" }),
@@ -12913,7 +13091,9 @@ var PWAInstallButton = () => {
 							" من قائمة المتصفح."
 						] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { children: [
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "على الهاتف (Android / iOS Safari):" }),
-							" اضغط على زر المشاركة (Share) ثم اختر ",
+							" افتح رابط المنصة عبر ",
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "HTTPS" }),
+							"، ثم اضغط على قائمة المتصفح أو زر المشاركة (Share) واختر ",
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "إضافة إلى الشاشة الرئيسية (Add to Home Screen)" }),
 							"."
 						] })]
@@ -13318,7 +13498,7 @@ var MobileAppsModal = ({ user, onClose, notify }) => {
 							className: "rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 p-4 space-y-2 text-xs",
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								className: "flex items-center gap-2 font-bold text-slate-800 dark:text-slate-200",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Globe, { className: "w-4 h-4 text-teal-600" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "عناوين الشبكة المحلية (LAN) لربط تطبيقات الطلاب بهذا الخادم:" })]
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Globe, { className: "w-4 h-4 text-teal-600" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "عناوين الخادم المتاحة لربط تطبيقات الطلاب:" })]
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 								className: "flex flex-wrap gap-2",
 								children: releases.lanUrls.map((url) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
@@ -13340,7 +13520,7 @@ var MobileAppsModal = ({ user, onClose, notify }) => {
 								className: "p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-1.5",
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 									className: "flex items-center gap-2 font-bold text-slate-900 dark:text-slate-100",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Server, { className: "w-4 h-4 text-teal-600" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "ربط تطبيق الهاتف بخادم الدفعة على الشبكة المحلية" })]
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Server, { className: "w-4 h-4 text-teal-600" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "ربط تطبيق الهاتف بخادم الدفعة عبر الإنترنت (HTTPS)" })]
 								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
 									className: "text-slate-600 dark:text-slate-400 leading-relaxed",
 									children: [
@@ -13348,26 +13528,26 @@ var MobileAppsModal = ({ user, onClose, notify }) => {
 										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "APK" }),
 										" أو ",
 										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "IPA" }),
-										" على هاتفك، أدخل عنوان خادم المندوب على شبكة Wi-Fi المحلية (مثل",
+										" على هاتفك، أدخل رابط الاستضافة الآمن لخادم الدفعة عبر الإنترنت (مثل",
 										" ",
 										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", {
-											className: "font-mono",
+											className: "inline-block font-mono",
 											dir: "ltr",
-											children: "http://192.168.1.15:3000"
+											children: "https://campus.example.edu"
 										}),
-										"). اتركه فارغاً عند الاستخدام من المتصفح المباشر."
+										"). اتركه فارغاً عند الاستخدام مباشرةً من المتصفح أو PWA."
 									]
 								})]
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
 								className: "block font-semibold mb-1.5 text-slate-800 dark:text-slate-200",
-								children: "عنوان الخادم المركزي (Server URL)"
+								children: "عنوان الخادم المركزي (HTTPS Server URL)"
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
 								type: "text",
 								dir: "ltr",
 								value: serverUrlInput,
 								onChange: (e) => setServerUrlInput(e.target.value),
-								placeholder: "http://192.168.1.15:3000",
+								placeholder: "https://campus.example.edu",
 								className: "w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 font-mono text-xs"
 							})] }),
 							serverCheckStatus && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -17157,6 +17337,19 @@ var LibraryView = ({ user, courses, files, onRefresh, notify }) => {
 			notify(err instanceof Error ? err.message : "تعذر حذف الملف", "error");
 		}
 	};
+	const handleDownloadFile = async (file) => {
+		try {
+			const res = await apiFetch(`/api/files/${encodeURIComponent(file.id)}/download-ticket`, { method: "POST" });
+			const a = document.createElement("a");
+			a.href = buildApiUrl(res.downloadUrl);
+			a.download = file.fileName;
+			document.body.appendChild(a);
+			a.click();
+			a.remove();
+		} catch (err) {
+			notify(err instanceof Error ? err.message : "تعذر تنزيل الملف", "error");
+		}
+	};
 	const filtered = files.filter((f) => {
 		if (courseFilter !== "ALL" && f.courseId !== courseFilter) return false;
 		if (catFilter !== "ALL" && f.category !== catFilter) return false;
@@ -17166,7 +17359,6 @@ var LibraryView = ({ user, courses, files, onRefresh, notify }) => {
 		}
 		return true;
 	});
-	const token = getAuthToken();
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "space-y-6",
 		children: [
@@ -17306,9 +17498,9 @@ var LibraryView = ({ user, courses, files, onRefresh, notify }) => {
 							children: f.fileName
 						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 							className: "flex items-center gap-2",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", {
-								href: buildApiUrl(`/api/files/${f.id}/download?token=${encodeURIComponent(token)}`),
-								download: f.fileName,
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								type: "button",
+								onClick: () => handleDownloadFile(f),
 								className: "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 dark:bg-teal-600 text-white font-semibold hover:opacity-90",
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Download, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "تنزيل الملف" })]
 							}), canUpload && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
@@ -17582,9 +17774,29 @@ var AdminAndStudentsView = ({ user, members, mode, onRefresh, notify }) => {
 			a.download = `DBL_Campus_Backup_${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.json`;
 			a.click();
 			URL.revokeObjectURL(url);
-			notify("تم تصدير النسخة الاحتياطية الكاملة لقاعدة البيانات");
+			notify("تم تصدير النسخة الاحتياطية الشاملة (JSON + SHA-256)");
 		} catch (err) {
 			notify(err instanceof Error ? err.message : "تعذر تصدير النسخة الاحتياطية", "error");
+		}
+	};
+	const handleDownloadSqliteBackup = async () => {
+		try {
+			const token = getAuthToken();
+			const res = await fetch(buildApiUrl("/api/admin/backup/sqlite"), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+			if (!res.ok) {
+				const err = await res.json().catch(() => ({}));
+				throw new Error(err.error || "تعذر تصدير قاعدة البيانات الثنائية");
+			}
+			const blob = await res.blob();
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement("a");
+			a.href = url;
+			a.download = `DBL_Campus_Database_${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.sqlite`;
+			a.click();
+			URL.revokeObjectURL(url);
+			notify("تم تصدير نسخة قاعدة البيانات الثنائية (SQLite) بنجاح");
+		} catch (err) {
+			notify(err instanceof Error ? err.message : "تعذر تصدير النسخة الثنائية", "error");
 		}
 	};
 	const handleRestoreBackupFile = (e) => {
@@ -17630,28 +17842,37 @@ var AdminAndStudentsView = ({ user, members, mode, onRefresh, notify }) => {
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 							className: "text-xs text-slate-600 dark:text-slate-400 leading-relaxed",
-							children: "قم بتصدير نسخة احتياطية كاملة بصيغة JSON تشمل جميع حسابات الطلاب، الجداول، التكاليف، الطلبات، وكشوف التأييد، أو استعد نسخة سابقة."
+							children: "قم بتصدير نسخة احتياطية كاملة بصيغة JSON (محمية ببصمة SHA-256) أو نسخة SQLite ثنائية ذرية جاهزة للنقل بين الخوادم السحابية، أو استعد نسخة سابقة."
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 							className: "flex flex-wrap items-center gap-3 pt-2",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-								type: "button",
-								onClick: handleDownloadBackup,
-								className: "inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-teal-600 text-white hover:bg-teal-700",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Download, { className: "w-4 h-4" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "تصدير نسخة احتياطية شاملة" })]
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-								className: "inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer",
-								children: [
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Upload, { className: "w-4 h-4" }),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "استعادة من ملف نسخة احتياطية" }),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-										type: "file",
-										accept: ".json",
-										onChange: handleRestoreBackupFile,
-										className: "hidden"
-									})
-								]
-							})]
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									type: "button",
+									onClick: handleDownloadBackup,
+									className: "inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-teal-600 text-white hover:bg-teal-700",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Download, { className: "w-4 h-4" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "تصدير نسخة JSON شاملة" })]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									type: "button",
+									onClick: handleDownloadSqliteBackup,
+									className: "inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-slate-900 dark:bg-slate-700 text-white hover:opacity-90",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Database, { className: "w-4 h-4" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "تنزيل قاعدة البيانات (.sqlite)" })]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+									className: "inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Upload, { className: "w-4 h-4" }),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "استعادة من ملف JSON" }),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+											type: "file",
+											accept: ".json",
+											onChange: handleRestoreBackupFile,
+											className: "hidden"
+										})
+									]
+								})
+							]
 						})
 					]
 				}), isRepresentative && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -18379,15 +18600,21 @@ function App() {
 		(async () => {
 			try {
 				const status = await apiFetch("/api/auth/status");
-				setDemoAccounts(status.demoAccounts || []);
+				const availableDemos = status.demoAccounts || [];
+				setDemoAccounts(availableDemos);
 				setHasProdRep(status.hasProductionRepresentative);
 				setRequiresSetupPasscode(status.requiresSetupPasscode);
+				if (availableDemos.length === 0) {
+					setAuthTab(status.hasProductionRepresentative ? "login" : "setup");
+					setLoginIdentifier("");
+					setLoginPassword("");
+				}
 				const params = new URLSearchParams(window.location.search);
 				if (status.user) {
 					setUser(status.user);
 					await loadAllCohortData();
-				} else if (params.get("autostart") === "1" && status.demoAccounts && status.demoAccounts.length > 0) {
-					const repDemo = status.demoAccounts[0];
+				} else if (params.get("autostart") === "1" && availableDemos.length > 0) {
+					const repDemo = availableDemos[0];
 					const loginRes = await apiFetch("/api/auth/demo-login", {
 						method: "POST",
 						body: JSON.stringify({ userId: repDemo.id })
@@ -18479,6 +18706,15 @@ function App() {
 		setAuthToken("");
 		setUser(null);
 	};
+	const handleLogoutAllSessions = async () => {
+		try {
+			await apiFetch("/api/auth/logout-all", { method: "POST" });
+			notify("تم إنهاء جميع الجلسات النشطة لحسابك على كافة الأجهزة");
+		} catch {}
+		setShowProfileModal(false);
+		setAuthToken("");
+		setUser(null);
+	};
 	const handleSaveProfile = async (e) => {
 		e.preventDefault();
 		try {
@@ -18557,18 +18793,18 @@ function App() {
 					children: [
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 							className: "text-xs font-bold text-teal-700 dark:text-teal-400",
-							children: "منصة إدارة الدفعات الجامعية متعددة المستخدمين (Local Network Multi-User Platform)"
+							children: "منصة إدارة الدفعات الجامعية المركزية عبر الإنترنت (HTTPS Multi-User Platform)"
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
 							className: "text-3xl font-bold text-slate-900 dark:text-white leading-tight",
-							children: "إدارة منظمة للدفعة الجامعية، دون أن يتحمل المندوب عبء كل شيء بمفرده."
+							children: "إدارة منظمة للدفعة الجامعية من أي مكان، دون أن يتحمل المندوب عبء كل شيء بمفرده."
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
 							className: "text-sm text-slate-600 dark:text-slate-400 leading-relaxed",
 							children: [
 								"تتيح منصة ",
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "DBL Campus" }),
-								" لمندوب الدفعة ونائبه والمنسقين والطلاب الوصول المركزي عبر الشبكة المحلية إلى الجدول الدراسي، التكاليف، الطلبات الجماعية وكشوف التأييد الرسمية (A4)، ومكتبة المحاضرات وفق صلاحيات دقيقة."
+								" لمندوب الدفعة ونائبه والمنسقين والطلاب الوصول المركزي الآمن عبر الإنترنت (HTTPS) من الهواتف والحواسيب إلى الجدول الدراسي، التكاليف، الطلبات الجماعية وكشوف التأييد الرسمية (A4)، ومكتبة المحاضرات وفق صلاحيات دقيقة."
 							]
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -18583,8 +18819,8 @@ function App() {
 								className: "p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900",
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", {
 									className: "text-slate-900 dark:text-white block mb-1",
-									children: "2. كاشف تعارضات الجدول وتفويض المهام"
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "تمييز بصري بين الجدول المعتمد والتغييرات المؤقتة والمقترحة، مع توزيع المهام على النائب والمنسقين بصلاحيات مخصصة." })]
+									children: "2. وصول سحابي آمن وتثبيت كتطبيق PWA"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "تعمل المنصة عبر HTTPS مع حماية الجلسات وفحص الملفات المرفوعة، وتدعم التثبيت المباشر على هواتف Android و iOS والوصول من أي شبكة." })]
 							})]
 						})
 					]
@@ -18594,7 +18830,7 @@ function App() {
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 							className: "flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg mb-5",
 							children: [
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								demoAccounts.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 									type: "button",
 									onClick: () => setAuthTab("demo"),
 									className: `flex-1 py-2 text-xs font-bold rounded-md transition-colors ${authTab === "demo" ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm" : "text-slate-600 dark:text-slate-400"}`,
@@ -18614,7 +18850,7 @@ function App() {
 								})
 							]
 						}),
-						authTab === "demo" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						authTab === "demo" && demoAccounts.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 							className: "space-y-3",
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
 								className: "text-xs text-slate-600 dark:text-slate-400",
@@ -18744,11 +18980,12 @@ function App() {
 								})] }),
 								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
 									className: "block font-semibold mb-1",
-									children: "كلمة المرور الخاصة (6 أحرف فأكثر)"
+									children: "كلمة المرور الخاصة (8 أحرف فأكثر)"
 								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
 									type: "password",
 									value: setupPassword,
 									onChange: (e) => setSetupPassword(e.target.value),
+									minLength: 8,
 									required: true,
 									className: "w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 font-mono"
 								})] }),
@@ -18774,7 +19011,7 @@ function App() {
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("footer", {
 				className: "px-6 py-4 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 flex flex-wrap items-center justify-between gap-2",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "DBL Campus — Student Cohort Management Platform" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "يعمل محلياً عبر قاعدة بيانات SQLite متعددة المستخدمين على الشبكة المحلية" })]
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "DBL Campus — Student Cohort Management Platform" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "جاهز للاستضافة المركزية عبر الإنترنت (HTTPS) وتثبيت الهواتف (PWA / APK / IPA)" })]
 			}),
 			showMobileAppsModal && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MobileAppsModal, {
 				user: null,
@@ -19311,7 +19548,8 @@ function App() {
 								type: "password",
 								value: profileNewPass,
 								onChange: (e) => setProfileNewPass(e.target.value),
-								placeholder: "6 أحرف على الأقل...",
+								placeholder: "8 أحرف على الأقل...",
+								minLength: 8,
 								className: "w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 font-mono"
 							})] }),
 							demoAccounts.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -19337,12 +19575,21 @@ function App() {
 								})]
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "pt-3 flex items-center justify-between border-t border-slate-200 dark:border-slate-800",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-									type: "button",
-									onClick: handleLogout,
-									className: "px-3 py-2 rounded-lg text-rose-600 font-semibold hover:bg-rose-50 dark:hover:bg-rose-950/30",
-									children: "تسجيل الخروج"
+								className: "pt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 dark:border-slate-800",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center gap-1.5",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										onClick: handleLogout,
+										className: "px-3 py-2 rounded-lg text-rose-600 font-semibold hover:bg-rose-50 dark:hover:bg-rose-950/30",
+										children: "تسجيل الخروج"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										onClick: handleLogoutAllSessions,
+										className: "px-2.5 py-2 rounded-lg text-[11px] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800",
+										title: "إنهاء تسجيل الدخول على جميع الهواتف والمتصفحات الأخرى",
+										children: "إنهاء كل الجلسات"
+									})]
 								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 									className: "flex gap-2",
 									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
@@ -19370,4 +19617,5 @@ function App() {
 	});
 }
 // src/main.tsx
+registerSW({ immediate: true });
 (0, import_client.createRoot)(document.getElementById("root")).render(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(App, {}));

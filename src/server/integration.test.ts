@@ -5,7 +5,8 @@ process.env.DBL_SKIP_LISTEN = '1';
 process.env.DBL_DB_PATH = './data/test_dbl_campus.sqlite';
 
 const { app } = await import('../../server.ts');
-const { seedDemoEnvironment } = await import('./db.ts');
+const { db, seedDemoEnvironment } = await import('./db.ts');
+const { hashSessionToken } = await import('./security.ts');
 
 seedDemoEnvironment(true);
 
@@ -291,18 +292,39 @@ test('End-to-End Integration Suite covering Scenarios 1–25', async (t) => {
     assert.equal(upFile.status, 201);
     uploadedFileId = upFile.data.id;
 
-    // Group A student downloads successfully
-    const dlA = await fetch(
+    // Raw ?token= query parameter MUST be rejected (401) to prevent URL/log token leaks
+    const dlRawQuery = await fetch(
       `${BASE}/api/files/${uploadedFileId}/download?token=${encodeURIComponent(newStudentToken)}`
     );
+    assert.equal(dlRawQuery.status, 401);
+
+    // Group A student downloads successfully via Authorization Bearer header
+    const dlA = await fetch(`${BASE}/api/files/${uploadedFileId}/download`, {
+      headers: { Authorization: `Bearer ${newStudentToken}` },
+    });
     assert.equal(dlA.status, 200);
+    assert.equal(dlA.headers.get('content-security-policy'), "default-src 'none'; sandbox");
+    assert.equal(dlA.headers.get('x-content-type-options'), 'nosniff');
     const dlText = await dlA.text();
     assert.equal(dlText, 'Real Lecture Notes Content');
 
-    // Group B student is blocked (403) from downloading Group A restricted file
-    const dlB = await fetch(
-      `${BASE}/api/files/${uploadedFileId}/download?token=${encodeURIComponent(stu2Token)}`
+    // Group A student can also request a 60s HMAC-signed download ticket and download with it
+    const ticketRes = await api(
+      `/api/files/${uploadedFileId}/download-ticket`,
+      'POST',
+      {},
+      newStudentToken
     );
+    assert.equal(ticketRes.status, 200);
+    assert.ok(ticketRes.data.downloadUrl.includes('ticket='));
+    const dlTicket = await fetch(`${BASE}${ticketRes.data.downloadUrl}`);
+    assert.equal(dlTicket.status, 200);
+    assert.equal(await dlTicket.text(), 'Real Lecture Notes Content');
+
+    // Group B student is blocked (403) from downloading Group A restricted file
+    const dlB = await fetch(`${BASE}/api/files/${uploadedFileId}/download`, {
+      headers: { Authorization: `Bearer ${stu2Token}` },
+    });
     assert.equal(dlB.status, 403);
 
     // Student blocked from Representative functions (e.g. creating course or exporting backup)
@@ -385,6 +407,119 @@ test('End-to-End Integration Suite covering Scenarios 1–25', async (t) => {
 
     const afterDel = await api('/api/mobile/releases', 'GET');
     assert.equal(afterDel.data.apk.available, false);
+  });
+
+  await t.test('27. Public Internet Security: Health, Hashed Sessions, Magic-Bytes Upload, CORS, HTTPS Redirect, Demo Prod Gate & Backup Integrity', async () => {
+    // 1. Health check endpoint returns 200 + storageWritable
+    const health = await fetch(`${BASE}/api/health`);
+    assert.equal(health.status, 200);
+    assert.equal(health.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(health.headers.get('cache-control'), 'no-store, private');
+    const healthJson = await health.json();
+    assert.equal(healthJson.status, 'ok');
+    assert.equal(healthJson.database, 'ok');
+    assert.equal(healthJson.storageWritable, true);
+
+    // 2. Sessions are stored hashed (SHA-256) in SQLite, never raw bearer tokens
+    const rawMatch = db.prepare('SELECT token FROM sessions WHERE token = ?').get(repToken);
+    assert.equal(rawMatch, undefined);
+    const hashedMatch = db
+      .prepare('SELECT token FROM sessions WHERE token = ?')
+      .get(hashSessionToken(repToken));
+    assert.ok(hashedMatch);
+
+    // 3. Disguised script uploaded as .pdf is rejected by magic-bytes validation (400)
+    const fakePdf = await api(
+      '/api/files',
+      'POST',
+      {
+        courseId: createdCourseId,
+        category: 'lectures',
+        title: 'ملف مزيف',
+        description: 'محاولة رفع سكربت كـ PDF',
+        fileName: 'malicious.pdf',
+        mimeType: 'application/pdf',
+        base64Content: Buffer.from('<script>alert(1)</script>', 'utf8').toString('base64'),
+        targetGroup: 'ALL',
+      },
+      coordToken
+    );
+    assert.equal(fakePdf.status, 400);
+
+    // 4. Scoped CORS allows configured HTTPS APP_URL and blocks untrusted external origins
+    const prevAppUrl = process.env.APP_URL;
+    process.env.APP_URL = 'https://campus.university.edu';
+    try {
+      const okCors = await fetch(`${BASE}/api/health`, {
+        headers: { Origin: 'https://campus.university.edu' },
+      });
+      assert.equal(okCors.headers.get('access-control-allow-origin'), 'https://campus.university.edu');
+
+      const badCors = await fetch(`${BASE}/api/health`, {
+        headers: { Origin: 'https://evil.attacker.example' },
+      });
+      assert.equal(badCors.headers.get('access-control-allow-origin'), null);
+    } finally {
+      if (prevAppUrl === undefined) delete process.env.APP_URL;
+      else process.env.APP_URL = prevAppUrl;
+    }
+
+    // 5. HTTPS redirect behind proxy when DBL_FORCE_HTTPS=true (exempting /api/health)
+    const prevForceHttps = process.env.DBL_FORCE_HTTPS;
+    process.env.DBL_FORCE_HTTPS = 'true';
+    try {
+      const redirected = await fetch(`${BASE}/api/auth/status`, {
+        headers: { 'X-Forwarded-Proto': 'http' },
+        redirect: 'manual',
+      });
+      assert.equal(redirected.status, 301);
+      assert.ok(redirected.headers.get('location')?.startsWith('https://'));
+
+      const healthNoRedirect = await fetch(`${BASE}/api/health`, {
+        headers: { 'X-Forwarded-Proto': 'http' },
+        redirect: 'manual',
+      });
+      assert.equal(healthNoRedirect.status, 200);
+    } finally {
+      if (prevForceHttps === undefined) delete process.env.DBL_FORCE_HTTPS;
+      else process.env.DBL_FORCE_HTTPS = prevForceHttps;
+    }
+
+    // 6. Demo login blocked (403) when DBL_ALLOW_DEMO=false
+    const prevAllowDemo = process.env.DBL_ALLOW_DEMO;
+    process.env.DBL_ALLOW_DEMO = 'false';
+    try {
+      const blockedDemo = await api('/api/auth/demo-login', 'POST', { userId: 'u-rep-demo' });
+      assert.equal(blockedDemo.status, 403);
+      const statusNoDemo = await api('/api/auth/status', 'GET');
+      assert.equal(statusNoDemo.data.demoEnabled, false);
+      assert.equal(statusNoDemo.data.demoAccounts.length, 0);
+    } finally {
+      if (prevAllowDemo === undefined) delete process.env.DBL_ALLOW_DEMO;
+      else process.env.DBL_ALLOW_DEMO = prevAllowDemo;
+    }
+
+    // 7. Backup checksum integrity & atomic SQLite binary download
+    const backup = await api('/api/admin/backup', 'GET', undefined, repToken);
+    assert.equal(backup.status, 200);
+    assert.equal(typeof backup.data.checksumSha256, 'string');
+    assert.equal(backup.data.checksumSha256.length, 64);
+    assert.equal(backup.data.tables.sessions, undefined);
+
+    const tamperedRestore = await api(
+      '/api/admin/restore',
+      'POST',
+      { ...backup.data, checksumSha256: '0'.repeat(64) },
+      repToken
+    );
+    assert.equal(tamperedRestore.status, 400);
+
+    const sqliteDl = await fetch(`${BASE}/api/admin/backup/sqlite`, {
+      headers: { Authorization: `Bearer ${repToken}` },
+    });
+    assert.equal(sqliteDl.status, 200);
+    const sqliteBuf = Buffer.from(await sqliteDl.arrayBuffer());
+    assert.equal(sqliteBuf.subarray(0, 16).toString('ascii'), 'SQLite format 3\0');
   });
 
   server.close();

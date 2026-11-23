@@ -1,0 +1,35 @@
+# Render Blueprint for DBL Campus
+# IMPORTANT: Persistent disks are required for SQLite + uploaded files.
+# Render's Free Web Service tier uses an ephemeral filesystem that WIPES data on restart/redeploy.
+# Use `plan: starter` (or higher) with the persistent disk configured below.
+
+services:
+  - type: web
+    name: dbl-campus
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /api/health
+    disk:
+      name: dbl-campus-data
+      mountPath: /data
+      sizeGB: 5
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: TRUST_PROXY
+        value: "1"
+      - key: DBL_FORCE_HTTPS
+        value: "true"
+      - key: DBL_DATA_DIR
+        value: /data
+      - key: DBL_ALLOW_DEMO
+        value: "false"
+      - key: APP_URL
+        sync: false
+      - key: DBL_ADMIN_SETUP_CODE
+        sync: false
+      - key: DBL_SESSION_SECRET
+        generateValue: true

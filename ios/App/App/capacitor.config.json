@@ -3,11 +3,11 @@
 	"appName": "DBL Campus",
 	"webDir": "dist",
 	"server": {
-		"androidScheme": "http",
-		"cleartext": true
+		"androidScheme": "https",
+		"cleartext": false
 	},
 	"android": {
-		"allowMixedContent": true
+		"allowMixedContent": false
 	},
 	"ios": {
 		"contentInset": "automatic"

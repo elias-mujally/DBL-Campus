@@ -5,12 +5,12 @@ const config: CapacitorConfig = {
   appName: 'DBL Campus',
   webDir: 'dist',
   server: {
-    // Use HTTP inside Android WebView so the app can connect to local LAN HTTP servers (e.g. http://192.168.x.x:3000)
-    androidScheme: 'http',
-    cleartext: true,
+    // HTTPS origin inside WebView for secure internet deployment (e.g. https://campus.example.edu)
+    androidScheme: 'https',
+    cleartext: false,
   },
   android: {
-    allowMixedContent: true,
+    allowMixedContent: false,
   },
   ios: {
     contentInset: 'automatic',

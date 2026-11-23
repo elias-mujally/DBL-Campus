@@ -4,8 +4,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { computeRequestVersionHash } from '../utils/domainLogic.ts';
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
-const DB_PATH = process.env.DBL_DB_PATH
+export const DATA_DIR = process.env.DBL_DATA_DIR
+  ? path.resolve(process.cwd(), process.env.DBL_DATA_DIR)
+  : path.resolve(process.cwd(), 'data');
+
+export const DB_PATH = process.env.DBL_DB_PATH
   ? path.resolve(process.cwd(), process.env.DBL_DB_PATH)
   : path.join(DATA_DIR, 'dbl_campus.sqlite');
 
@@ -13,16 +16,34 @@ export const UPLOADS_DIR = process.env.DBL_UPLOADS_DIR
   ? path.resolve(process.cwd(), process.env.DBL_UPLOADS_DIR)
   : path.join(DATA_DIR, 'uploads');
 
-if (!fs.existsSync(path.dirname(DB_PATH))) {
-  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-}
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+export const RELEASES_DIR = process.env.DBL_RELEASES_DIR
+  ? path.resolve(process.cwd(), process.env.DBL_RELEASES_DIR)
+  : path.join(DATA_DIR, 'releases');
+
+export const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
+
+for (const dir of [path.dirname(DB_PATH), UPLOADS_DIR, RELEASES_DIR, BACKUPS_DIR]) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
 }
 
 export const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');
+db.pragma('busy_timeout = 5000');
 db.pragma('foreign_keys = ON');
+
+export function closeDatabaseGracefully(): void {
+  try {
+    if (db.open) {
+      db.pragma('wal_checkpoint(TRUNCATE)');
+      db.close();
+    }
+  } catch {
+    // ignore close error on shutdown
+  }
+}
 
 export function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -68,6 +89,9 @@ export function runMigrations(): void {
       expires_at TEXT NOT NULL,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 
     CREATE TABLE IF NOT EXISTS courses (
       id TEXT PRIMARY KEY,

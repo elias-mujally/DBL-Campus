@@ -1,0 +1,14 @@
+node_modules
+dist
+data
+android
+ios
+.git
+.env
+.env.*
+!.env.example
+.playwright-cli
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.log

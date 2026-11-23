@@ -159,24 +159,28 @@ export default function App() {
           user: UserAccount | null;
           hasProductionRepresentative: boolean;
           requiresSetupPasscode: boolean;
+          demoEnabled?: boolean;
           demoAccounts: UserAccount[];
         }>('/api/auth/status');
 
-        setDemoAccounts(status.demoAccounts || []);
+        const availableDemos = status.demoAccounts || [];
+        setDemoAccounts(availableDemos);
         setHasProdRep(status.hasProductionRepresentative);
         setRequiresSetupPasscode(status.requiresSetupPasscode);
 
-        // Support ?autostart=1 or instant loading of demo representative so user immediately sees the working app
+        if (availableDemos.length === 0) {
+          setAuthTab(status.hasProductionRepresentative ? 'login' : 'setup');
+          setLoginIdentifier('');
+          setLoginPassword('');
+        }
+
+        // Support ?autostart=1 in demo-enabled environments
         const params = new URLSearchParams(window.location.search);
         if (status.user) {
           setUser(status.user);
           await loadAllCohortData();
-        } else if (
-          params.get('autostart') === '1' &&
-          status.demoAccounts &&
-          status.demoAccounts.length > 0
-        ) {
-          const repDemo = status.demoAccounts[0];
+        } else if (params.get('autostart') === '1' && availableDemos.length > 0) {
+          const repDemo = availableDemos[0];
           const loginRes = await apiFetch<{ token: string; user: UserAccount }>(
             '/api/auth/demo-login',
             {
@@ -286,6 +290,18 @@ export default function App() {
     setUser(null);
   };
 
+  const handleLogoutAllSessions = async () => {
+    try {
+      await apiFetch('/api/auth/logout-all', { method: 'POST' });
+      notify('تم إنهاء جميع الجلسات النشطة لحسابك على كافة الأجهزة');
+    } catch {
+      // ignore
+    }
+    setShowProfileModal(false);
+    setAuthToken('');
+    setUser(null);
+  };
+
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -371,13 +387,13 @@ export default function App() {
           {/* Right Introductory Column */}
           <div className="lg:col-span-6 space-y-5">
             <p className="text-xs font-bold text-teal-700 dark:text-teal-400">
-              منصة إدارة الدفعات الجامعية متعددة المستخدمين (Local Network Multi-User Platform)
+              منصة إدارة الدفعات الجامعية المركزية عبر الإنترنت (HTTPS Multi-User Platform)
             </p>
             <h1 className="text-3xl font-bold text-slate-900 dark:text-white leading-tight">
-              إدارة منظمة للدفعة الجامعية، دون أن يتحمل المندوب عبء كل شيء بمفرده.
+              إدارة منظمة للدفعة الجامعية من أي مكان، دون أن يتحمل المندوب عبء كل شيء بمفرده.
             </h1>
             <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              تتيح منصة <strong>DBL Campus</strong> لمندوب الدفعة ونائبه والمنسقين والطلاب الوصول المركزي عبر الشبكة المحلية إلى الجدول الدراسي، التكاليف، الطلبات الجماعية وكشوف التأييد الرسمية (A4)، ومكتبة المحاضرات وفق صلاحيات دقيقة.
+              تتيح منصة <strong>DBL Campus</strong> لمندوب الدفعة ونائبه والمنسقين والطلاب الوصول المركزي الآمن عبر الإنترنت (HTTPS) من الهواتف والحواسيب إلى الجدول الدراسي، التكاليف، الطلبات الجماعية وكشوف التأييد الرسمية (A4)، ومكتبة المحاضرات وفق صلاحيات دقيقة.
             </p>
 
             <div className="space-y-3 pt-2 text-xs text-slate-700 dark:text-slate-300">
@@ -391,10 +407,10 @@ export default function App() {
               </div>
               <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
                 <strong className="text-slate-900 dark:text-white block mb-1">
-                  2. كاشف تعارضات الجدول وتفويض المهام
+                  2. وصول سحابي آمن وتثبيت كتطبيق PWA
                 </strong>
                 <span>
-                  تمييز بصري بين الجدول المعتمد والتغييرات المؤقتة والمقترحة، مع توزيع المهام على النائب والمنسقين بصلاحيات مخصصة.
+                  تعمل المنصة عبر HTTPS مع حماية الجلسات وفحص الملفات المرفوعة، وتدعم التثبيت المباشر على هواتف Android و iOS والوصول من أي شبكة.
                 </span>
               </div>
             </div>
@@ -403,17 +419,19 @@ export default function App() {
           {/* Left Authentication & Demo Switcher Card */}
           <div className="lg:col-span-6 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm">
             <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg mb-5">
-              <button
-                type="button"
-                onClick={() => setAuthTab('demo')}
-                className={`flex-1 py-2 text-xs font-bold rounded-md transition-colors ${
-                  authTab === 'demo'
-                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400'
-                }`}
-              >
-                بيئة التجربة السريعة
-              </button>
+              {demoAccounts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setAuthTab('demo')}
+                  className={`flex-1 py-2 text-xs font-bold rounded-md transition-colors ${
+                    authTab === 'demo'
+                      ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  بيئة التجربة السريعة
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setAuthTab('login')}
@@ -440,7 +458,7 @@ export default function App() {
               )}
             </div>
 
-            {authTab === 'demo' && (
+            {authTab === 'demo' && demoAccounts.length > 0 && (
               <div className="space-y-3">
                 <p className="text-xs text-slate-600 dark:text-slate-400">
                   اختر أي حساب من الحسابات التجريبية الجاهزة لاختبار الصلاحيات والأدوار المختلفة فوراً (كلمة المرور الموحدة لبيئة التجربة فقط: <code className="font-mono">Demo@2026</code>):
@@ -553,11 +571,12 @@ export default function App() {
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold mb-1">كلمة المرور الخاصة (6 أحرف فأكثر)</label>
+                  <label className="block font-semibold mb-1">كلمة المرور الخاصة (8 أحرف فأكثر)</label>
                   <input
                     type="password"
                     value={setupPassword}
                     onChange={(e) => setSetupPassword(e.target.value)}
+                    minLength={8}
                     required
                     className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 font-mono"
                   />
@@ -587,7 +606,7 @@ export default function App() {
 
         <footer className="px-6 py-4 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 flex flex-wrap items-center justify-between gap-2">
           <span>DBL Campus — Student Cohort Management Platform</span>
-          <span>يعمل محلياً عبر قاعدة بيانات SQLite متعددة المستخدمين على الشبكة المحلية</span>
+          <span>جاهز للاستضافة المركزية عبر الإنترنت (HTTPS) وتثبيت الهواتف (PWA / APK / IPA)</span>
         </footer>
 
         {showMobileAppsModal && (
@@ -1190,7 +1209,8 @@ export default function App() {
                   type="password"
                   value={profileNewPass}
                   onChange={(e) => setProfileNewPass(e.target.value)}
-                  placeholder="6 أحرف على الأقل..."
+                  placeholder="8 أحرف على الأقل..."
+                  minLength={8}
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 font-mono"
                 />
               </div>
@@ -1217,14 +1237,24 @@ export default function App() {
                 </div>
               )}
 
-              <div className="pt-3 flex items-center justify-between border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  className="px-3 py-2 rounded-lg text-rose-600 font-semibold hover:bg-rose-50 dark:hover:bg-rose-950/30"
-                >
-                  تسجيل الخروج
-                </button>
+              <div className="pt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 dark:border-slate-800">
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="px-3 py-2 rounded-lg text-rose-600 font-semibold hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                  >
+                    تسجيل الخروج
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleLogoutAllSessions}
+                    className="px-2.5 py-2 rounded-lg text-[11px] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    title="إنهاء تسجيل الدخول على جميع الهواتف والمتصفحات الأخرى"
+                  >
+                    إنهاء كل الجلسات
+                  </button>
+                </div>
                 <div className="flex gap-2">
                   <button
                     type="button"

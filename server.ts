@@ -1,19 +1,36 @@
+import 'dotenv/config';
 import express from 'express';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { createServer as createViteServer } from 'vite';
 import {
+  BACKUPS_DIR,
+  closeDatabaseGracefully,
+  DATA_DIR,
   db,
   hashPassword,
   logAudit,
   purgeDemoData,
+  RELEASES_DIR,
   runMigrations,
   seedDemoEnvironment,
   UPLOADS_DIR,
   verifyPassword,
 } from './src/server/db.ts';
+import {
+  buildSafeContentDisposition,
+  computeBackupChecksum,
+  createRateLimiter,
+  createSignedDownloadTicket,
+  hashSessionToken,
+  isAllowedCorsOrigin,
+  parseTrustProxy,
+  timingSafeStringEqual,
+  validateUploadedFileSignature,
+  verifySignedDownloadTicket,
+} from './src/server/security.ts';
 import type {
   Lecture,
   RequestStatus,
@@ -31,32 +48,85 @@ import {
   validateRequestTransition,
 } from './src/utils/domainLogic.ts';
 
-runMigrations();
-seedDemoEnvironment(false);
-
-export const app = express();
-
-// Scoped CORS for Capacitor Android/iOS native shells & LAN hosts (never wildcard '*' on authenticated endpoints)
-function isAllowedMobileOrigin(origin: string): boolean {
-  if (
-    origin === 'capacitor://localhost' ||
-    origin === 'ionic://localhost' ||
-    origin === 'http://localhost' ||
-    origin === 'https://localhost' ||
-    /^http:\/\/localhost:\d+$/.test(origin) ||
-    /^http:\/\/127\.0\.0\.1:\d+$/.test(origin) ||
-    /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/.test(origin) ||
-    /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/.test(origin) ||
-    /^http:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}(:\d+)?$/.test(origin)
-  ) {
-    return true;
-  }
-  return false;
+function isProductionMode(): boolean {
+  return process.env.NODE_ENV === 'production';
 }
 
+function isDemoModeEnabled(): boolean {
+  if (process.env.DBL_ALLOW_DEMO === 'false') return false;
+  if (process.env.DBL_ALLOW_DEMO === 'true') return true;
+  // Safe default for public internet: demo accounts disabled in production unless explicitly enabled
+  return !isProductionMode();
+}
+
+function isHttpsForceEnabled(): boolean {
+  if (process.env.DBL_FORCE_HTTPS === 'false') return false;
+  if (process.env.DBL_FORCE_HTTPS === 'true') return true;
+  return isProductionMode();
+}
+
+const TICKET_SIGNING_SECRET =
+  process.env.DBL_SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+
+runMigrations();
+if (isDemoModeEnabled()) {
+  seedDemoEnvironment(false);
+}
+
+export const app = express();
+app.disable('x-powered-by');
+app.set('trust proxy', parseTrustProxy(process.env.TRUST_PROXY, isProductionMode()));
+
+// Enforce HTTPS behind TLS-terminating reverse proxies in production (exempt /api/health)
+app.use((req, res, next) => {
+  if (isHttpsForceEnabled() && req.path !== '/api/health') {
+    const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
+      .split(',')[0]
+      .trim()
+      .toLowerCase();
+    if (forwardedProto === 'http') {
+      const host = req.headers.host;
+      if (host) {
+        res.redirect(301, `https://${host}${req.originalUrl}`);
+        return;
+      }
+    }
+  }
+  next();
+});
+
+// Public-internet security headers
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+
+  const isHttps =
+    req.secure ||
+    String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase() === 'https';
+  if (isHttps || isProductionMode()) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+
+  if (req.path.startsWith('/api/')) {
+    res.setHeader('Cache-Control', 'no-store, private');
+  }
+
+  next();
+});
+
+// Scoped CORS for configured HTTPS APP_URL / ALLOWED_ORIGINS + Capacitor mobile shells (never wildcard '*')
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (origin && isAllowedMobileOrigin(origin)) {
+  if (
+    origin &&
+    isAllowedCorsOrigin(origin, {
+      appUrl: process.env.APP_URL,
+      allowedOrigins: process.env.ALLOWED_ORIGINS,
+      allowLanOrigins: process.env.DBL_ALLOW_LAN_ORIGINS === 'true',
+      isProduction: isProductionMode(),
+    })
+  ) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -71,22 +141,22 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: '12mb' }));
 
-// Simple rate limiter for login attempts
-const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+// Memory-bounded rate limiters for public internet protection
+const loginRateLimiter = createRateLimiter({ windowMs: 60_000, max: 10 });
+const setupRateLimiter = createRateLimiter({ windowMs: 300_000, max: 5 });
+const writeRateLimiter = createRateLimiter({ windowMs: 60_000, max: 180 });
 
-function checkLoginRateLimit(key: string): boolean {
-  const now = Date.now();
-  const entry = loginAttempts.get(key);
-  if (!entry || now > entry.resetAt) {
-    loginAttempts.set(key, { count: 1, resetAt: now + 60_000 });
-    return true;
+app.use('/api', (req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS') {
+    if (!writeRateLimiter.allow(req.ip || 'unknown')) {
+      res.status(429).json({
+        error: 'تم تجاوز معدل الطلبات المسموح به. يرجى المحاولة بعد قليل.',
+      });
+      return;
+    }
   }
-  if (entry.count >= 10) {
-    return false;
-  }
-  entry.count += 1;
-  return true;
-}
+  next();
+});
 
 interface DbUserRow {
   id: string;
@@ -124,32 +194,35 @@ function mapUserRow(row: DbUserRow): UserAccount {
 }
 
 function createSessionToken(userId: string): string {
-  const token = crypto.randomBytes(32).toString('hex');
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashSessionToken(rawToken);
   const now = new Date();
   const expires = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 7); // 7 days
+
+  // Periodically prune expired sessions
+  db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now.toISOString());
   db.prepare(
     'INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)'
-  ).run(token, userId, now.toISOString(), expires.toISOString());
-  return token;
+  ).run(tokenHash, userId, now.toISOString(), expires.toISOString());
+  return rawToken;
 }
 
 function getAuthenticatedUser(req: express.Request): UserAccount | null {
   const authHeader = req.headers.authorization;
-  let token = '';
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    token = authHeader.slice(7).trim();
-  } else if (typeof req.query.token === 'string') {
-    token = req.query.token.trim();
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
   }
-  if (!token) return null;
+  const rawToken = authHeader.slice(7).trim();
+  if (!rawToken) return null;
 
+  const tokenHash = hashSessionToken(rawToken);
   const session = db
     .prepare('SELECT user_id, expires_at FROM sessions WHERE token = ?')
-    .get(token) as { user_id: string; expires_at: string } | undefined;
+    .get(tokenHash) as { user_id: string; expires_at: string } | undefined;
 
   if (!session) return null;
   if (new Date(session.expires_at).getTime() < Date.now()) {
-    db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+    db.prepare('DELETE FROM sessions WHERE token = ?').run(tokenHash);
     return null;
   }
 
@@ -176,6 +249,32 @@ function requireAuth(
 }
 
 // ==========================================
+// 0. HEALTH CHECK ENDPOINT (FOR PROXIES & CONTAINERS)
+// ==========================================
+
+app.get('/api/health', (_req, res) => {
+  try {
+    db.prepare('SELECT 1').get();
+    fs.accessSync(DATA_DIR, fs.constants.W_OK);
+    res.json({
+      status: 'ok',
+      database: 'ok',
+      storageWritable: true,
+      environment: isProductionMode() ? 'production' : 'development',
+      httpsEnforced: isHttpsForceEnabled(),
+      demoEnabled: isDemoModeEnabled(),
+      uptimeSeconds: Math.floor(process.uptime()),
+    });
+  } catch {
+    res.status(503).json({
+      status: 'degraded',
+      database: 'error',
+      storageWritable: false,
+    });
+  }
+});
+
+// ==========================================
 // 1. AUTHENTICATION & BOOTSTRAP ROUTES
 // ==========================================
 
@@ -186,16 +285,20 @@ app.get('/api/auth/status', (req, res) => {
       .prepare("SELECT COUNT(*) as cnt FROM users WHERE role = 'representative' AND is_demo = 0")
       .get() as { cnt: number }
   ).cnt;
-  const demoAccounts = (
-    db
-      .prepare('SELECT * FROM users WHERE is_demo = 1 AND is_active = 1 ORDER BY created_at ASC')
-      .all() as DbUserRow[]
-  ).map(mapUserRow);
+  const demoAllowed = isDemoModeEnabled();
+  const demoAccounts = demoAllowed
+    ? (
+        db
+          .prepare('SELECT * FROM users WHERE is_demo = 1 AND is_active = 1 ORDER BY created_at ASC')
+          .all() as DbUserRow[]
+      ).map(mapUserRow)
+    : [];
 
   res.json({
     user,
     hasProductionRepresentative: prodRepCount > 0,
     requiresSetupPasscode: Boolean(process.env.DBL_ADMIN_SETUP_CODE),
+    demoEnabled: demoAllowed,
     demoAccounts,
   });
 });
@@ -208,7 +311,7 @@ app.post('/api/auth/login', (req, res) => {
   }
 
   const rateKey = `${req.ip || 'local'}:${String(identifier).trim().toLowerCase()}`;
-  if (!checkLoginRateLimit(rateKey)) {
+  if (!loginRateLimiter.allow(rateKey)) {
     res.status(429).json({
       error: 'تم تجاوز الحد المسموح لمحاولات تسجيل الدخول. يرجى الانتظار دقيقة واحدة.',
     });
@@ -225,6 +328,11 @@ app.post('/api/auth/login', (req, res) => {
     return;
   }
 
+  if (userRow.is_demo === 1 && !isDemoModeEnabled()) {
+    res.status(403).json({ error: 'الحسابات التجريبية معطّلة في بيئة الإنتاج.' });
+    return;
+  }
+
   if (userRow.is_active !== 1) {
     res.status(403).json({ error: 'هذا الحساب معطل حالياً. يرجى مراجعة مندوب الدفعة.' });
     return;
@@ -238,6 +346,11 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 app.post('/api/auth/demo-login', (req, res) => {
+  if (!isDemoModeEnabled()) {
+    res.status(403).json({ error: 'تم تعطيل الدخول التجريبي في بيئة الإنتاج العامة.' });
+    return;
+  }
+
   const { userId } = req.body || {};
   const userRow = db
     .prepare('SELECT * FROM users WHERE id = ? AND is_demo = 1 AND is_active = 1')
@@ -254,6 +367,11 @@ app.post('/api/auth/demo-login', (req, res) => {
 });
 
 app.post('/api/auth/setup-production-rep', (req, res) => {
+  if (!setupRateLimiter.allow(req.ip || 'local')) {
+    res.status(429).json({ error: 'تم تجاوز محاولات الإعداد الأولي. يرجى الانتظار 5 دقائق.' });
+    return;
+  }
+
   const prodRepCount = (
     db
       .prepare("SELECT COUNT(*) as cnt FROM users WHERE role = 'representative' AND is_demo = 0")
@@ -267,15 +385,15 @@ app.post('/api/auth/setup-production-rep', (req, res) => {
 
   const { universityId, fullName, email, password, groupName, setupCode } = req.body || {};
   if (process.env.DBL_ADMIN_SETUP_CODE) {
-    if (String(setupCode || '') !== process.env.DBL_ADMIN_SETUP_CODE) {
+    if (!timingSafeStringEqual(String(setupCode || ''), process.env.DBL_ADMIN_SETUP_CODE)) {
       res.status(403).json({ error: 'رمز الإعداد الأولي غير صحيح.' });
       return;
     }
   }
 
-  if (!universityId || !fullName || !email || !password || String(password).length < 6) {
+  if (!universityId || !fullName || !email || !password || String(password).length < 8) {
     res.status(400).json({
-      error: 'يرجى تعبئة جميع الحقول المطلوبة والتأكد من أن كلمة المرور لا تقل عن 6 أحرف.',
+      error: 'يرجى تعبئة جميع الحقول المطلوبة والتأكد من أن كلمة المرور لا تقل عن 8 أحرف.',
     });
     return;
   }
@@ -326,9 +444,16 @@ app.post('/api/auth/setup-production-rep', (req, res) => {
 app.post('/api/auth/logout', requireAuth, (req, res) => {
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.slice(7).trim();
-    db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+    const tokenHash = hashSessionToken(authHeader.slice(7).trim());
+    db.prepare('DELETE FROM sessions WHERE token = ?').run(tokenHash);
   }
+  res.json({ ok: true });
+});
+
+app.post('/api/auth/logout-all', requireAuth, (req, res) => {
+  const user = (req as express.Request & { user: UserAccount }).user;
+  db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
+  logAudit(user, 'LOGOUT_ALL_SESSIONS', 'user', user.id, 'إنهاء جميع الجلسات النشطة لهذا الحساب');
   res.json({ ok: true });
 });
 
@@ -342,8 +467,8 @@ app.put('/api/auth/profile', requireAuth, (req, res) => {
 
   try {
     if (newPassword && String(newPassword).trim().length > 0) {
-      if (String(newPassword).length < 6) {
-        res.status(400).json({ error: 'كلمة المرور الجديدة يجب ألا تقل عن 6 أحرف.' });
+      if (String(newPassword).length < 8) {
+        res.status(400).json({ error: 'كلمة المرور الجديدة يجب ألا تقل عن 8 أحرف.' });
         return;
       }
       db.prepare('UPDATE users SET full_name = ?, email = ?, password_hash = ? WHERE id = ?').run(
@@ -352,6 +477,12 @@ app.put('/api/auth/profile', requireAuth, (req, res) => {
         hashPassword(String(newPassword)),
         user.id
       );
+      // Revoke all other sessions for this user after password change
+      const authHeader = req.headers.authorization || '';
+      const currentHash = authHeader.startsWith('Bearer ')
+        ? hashSessionToken(authHeader.slice(7).trim())
+        : '';
+      db.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(user.id, currentHash);
     } else {
       db.prepare('UPDATE users SET full_name = ?, email = ? WHERE id = ?').run(
         String(fullName).trim(),
@@ -1763,6 +1894,14 @@ app.post('/api/files', requireAuth, (req, res) => {
     return;
   }
 
+  const sigCheck = validateUploadedFileSignature(ext, buffer);
+  if (!sigCheck.valid) {
+    res.status(400).json({
+      error: sigCheck.reason || 'محتوى الملف لا يطابق الامتداد المعلن عنه.',
+    });
+    return;
+  }
+
   const id = `fil-${crypto.randomUUID().slice(0, 8)}`;
   const storedName = `${id}_${Date.now()}${ext}`;
   const resolvedPath = path.resolve(UPLOADS_DIR, storedName);
@@ -1797,8 +1936,65 @@ app.post('/api/files', requireAuth, (req, res) => {
   res.status(201).json({ id });
 });
 
-app.get('/api/files/:id/download', requireAuth, (req, res) => {
+app.post('/api/files/:id/download-ticket', requireAuth, (req, res) => {
   const user = (req as express.Request & { user: UserAccount }).user;
+  const row = db
+    .prepare('SELECT id, target_group FROM library_files WHERE id = ?')
+    .get(req.params.id) as { id: string; target_group: string } | undefined;
+
+  if (!row) {
+    res.status(404).json({ error: 'الملف غير موجود.' });
+    return;
+  }
+
+  const canManageFiles = hasPermission(user, 'files');
+  if (!canManageFiles && !doGroupsOverlap(row.target_group, user.groupName)) {
+    res.status(403).json({ error: 'ليس لديك صلاحية تنزيل ملفات مخصصة لمجموعة أخرى.' });
+    return;
+  }
+
+  const expiresInSeconds = 60;
+  const ticket = createSignedDownloadTicket(
+    {
+      fileId: row.id,
+      userId: user.id,
+      exp: Date.now() + expiresInSeconds * 1000,
+    },
+    TICKET_SIGNING_SECRET
+  );
+
+  res.json({
+    ticket,
+    expiresInSeconds,
+    downloadUrl: `/api/files/${encodeURIComponent(row.id)}/download?ticket=${encodeURIComponent(ticket)}`,
+  });
+});
+
+app.get('/api/files/:id/download', (req, res) => {
+  let user = getAuthenticatedUser(req);
+
+  // Allow short-lived HMAC-signed single-file ticket (never raw session token in query string)
+  if (!user && typeof req.query.ticket === 'string') {
+    const verified = verifySignedDownloadTicket(
+      req.query.ticket,
+      req.params.id,
+      TICKET_SIGNING_SECRET
+    );
+    if (verified.valid && verified.userId) {
+      const userRow = db
+        .prepare('SELECT * FROM users WHERE id = ? AND is_active = 1')
+        .get(verified.userId) as DbUserRow | undefined;
+      if (userRow) {
+        user = mapUserRow(userRow);
+      }
+    }
+  }
+
+  if (!user) {
+    res.status(401).json({ error: 'يرجى تسجيل الدخول أو استخدام تذكرة تنزيل صالحة.' });
+    return;
+  }
+
   const row = db.prepare('SELECT * FROM library_files WHERE id = ?').get(req.params.id) as
     | {
         id: string;
@@ -1826,11 +2022,10 @@ app.get('/api/files/:id/download', requireAuth, (req, res) => {
     return;
   }
 
-  res.setHeader('Content-Type', row.mime_type || 'application/octet-stream');
-  res.setHeader(
-    'Content-Disposition',
-    `attachment; filename="${encodeURIComponent(row.file_name)}"`
-  );
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+  res.setHeader('Content-Disposition', buildSafeContentDisposition(row.file_name));
   res.sendFile(resolvedPath);
 });
 
@@ -2033,14 +2228,47 @@ app.get('/api/admin/backup', requireAuth, (req, res) => {
     data[t] = db.prepare(`SELECT * FROM ${t}`).all();
   }
 
+  const checksumSha256 = computeBackupChecksum(data);
   logAudit(user, 'EXPORT_BACKUP', 'system', 'backup', 'تصدير نسخة احتياطية شاملة لقاعدة البيانات');
   res.json({
     app: 'DBL Campus',
-    version: '1.0.0',
+    version: '1.1.0',
     exportedAt: new Date().toISOString(),
     exportedBy: user.fullName,
+    checksumSha256,
     tables: data,
   });
+});
+
+app.get('/api/admin/backup/sqlite', requireAuth, async (req, res) => {
+  const user = (req as express.Request & { user: UserAccount }).user;
+  if (!hasPermission(user, 'backup')) {
+    res.status(403).json({ error: 'ليس لديك صلاحية تصدير النسخة الثنائية لقاعدة البيانات.' });
+    return;
+  }
+
+  const snapshotName = `dbl_campus_backup_${Date.now()}.sqlite`;
+  const snapshotPath = path.resolve(BACKUPS_DIR, snapshotName);
+  if (!snapshotPath.startsWith(BACKUPS_DIR + path.sep)) {
+    res.status(400).json({ error: 'مسار النسخ الاحتياطي غير صالح.' });
+    return;
+  }
+
+  try {
+    await db.backup(snapshotPath);
+    logAudit(user, 'EXPORT_SQLITE_BACKUP', 'system', 'backup', 'تصدير نسخة SQLite ثنائية ذرية');
+    res.setHeader('Content-Type', 'application/x-sqlite3');
+    res.setHeader('Content-Disposition', buildSafeContentDisposition(snapshotName));
+    res.sendFile(snapshotPath, () => {
+      try {
+        if (fs.existsSync(snapshotPath)) fs.unlinkSync(snapshotPath);
+      } catch {
+        // ignore temp cleanup error
+      }
+    });
+  } catch {
+    res.status(500).json({ error: 'تعذر إنشاء النسخة الاحتياطية الثنائية لقاعدة البيانات.' });
+  }
 });
 
 app.post('/api/admin/restore', requireAuth, (req, res) => {
@@ -2050,10 +2278,20 @@ app.post('/api/admin/restore', requireAuth, (req, res) => {
     return;
   }
 
-  const { tables } = req.body || {};
+  const { tables, checksumSha256 } = req.body || {};
   if (!tables || typeof tables !== 'object') {
     res.status(400).json({ error: 'ملف النسخة الاحتياطية غير صالح.' });
     return;
+  }
+
+  if (typeof checksumSha256 === 'string' && checksumSha256.trim().length > 0) {
+    const computed = computeBackupChecksum(tables as Record<string, unknown[]>);
+    if (!timingSafeStringEqual(checksumSha256.trim(), computed)) {
+      res.status(400).json({
+        error: 'فشل التحقق من سلامة ملف النسخة الاحتياطية (SHA-256 غير مطابق — قد يكون الملف تالفاً أو معدّلاً).',
+      });
+      return;
+    }
   }
 
   try {
@@ -2129,11 +2367,6 @@ app.post('/api/admin/demo-purge', requireAuth, (req, res) => {
 // 11. MOBILE APP PACKAGES (ANDROID APK & IOS IPA)
 // ==========================================
 
-const RELEASES_DIR = path.resolve(process.cwd(), 'data', 'releases');
-if (!fs.existsSync(RELEASES_DIR)) {
-  fs.mkdirSync(RELEASES_DIR, { recursive: true });
-}
-
 const RELEASE_FILENAMES: Record<'apk' | 'ipa', { fileName: string; mimeType: string }> = {
   apk: {
     fileName: 'DBL-Campus-Android.apk',
@@ -2145,18 +2378,26 @@ const RELEASE_FILENAMES: Record<'apk' | 'ipa', { fileName: string; mimeType: str
   },
 };
 
-function getLocalLanUrls(port: number): string[] {
+function getSuggestedServerUrls(port: number): string[] {
   const urls: string[] = [];
-  const nets = os.networkInterfaces();
-  for (const entries of Object.values(nets)) {
-    if (!entries) continue;
-    for (const info of entries) {
-      if (info.family === 'IPv4' && !info.internal) {
-        urls.push(`http://${info.address}:${port}`);
+  const configuredAppUrl = String(process.env.APP_URL || '').trim();
+  if (configuredAppUrl && /^https?:\/\//i.test(configuredAppUrl) && !configuredAppUrl.includes('MY_APP_URL')) {
+    urls.push(configuredAppUrl.replace(/\/+$/, ''));
+  }
+
+  // Only expose local LAN interfaces outside strict internet-only production deployments
+  if (!isProductionMode() || process.env.DBL_ALLOW_LAN_ORIGINS === 'true') {
+    const nets = os.networkInterfaces();
+    for (const entries of Object.values(nets)) {
+      if (!entries) continue;
+      for (const info of entries) {
+        if (info.family === 'IPv4' && !info.internal) {
+          urls.push(`http://${info.address}:${port}`);
+        }
       }
     }
   }
-  return urls;
+  return Array.from(new Set(urls));
 }
 
 function inspectMobileRelease(platform: 'apk' | 'ipa') {
@@ -2189,7 +2430,7 @@ app.get('/api/mobile/releases', (_req, res) => {
   res.json({
     apk: inspectMobileRelease('apk'),
     ipa: inspectMobileRelease('ipa'),
-    lanUrls: getLocalLanUrls(port),
+    lanUrls: getSuggestedServerUrls(port),
     workflowFile: '.github/workflows/build-mobile.yml',
   });
 });
@@ -2261,7 +2502,8 @@ app.get('/api/mobile/download/:platform', (req, res) => {
   }
 
   res.setHeader('Content-Type', meta.mimeType);
-  res.setHeader('Content-Disposition', `attachment; filename="${meta.fileName}"`);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Disposition', buildSafeContentDisposition(meta.fileName));
   res.sendFile(filePath);
 });
 
@@ -2293,24 +2535,76 @@ app.delete('/api/mobile/releases/:platform', requireAuth, (req, res) => {
 
 async function startServer(): Promise<void> {
   const PORT = Number(process.env.PORT) || 3000;
+  const httpServer = http.createServer(app);
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (!isProductionMode()) {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: process.env.DISABLE_HMR === 'true' ? false : { server: httpServer },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
+
+    // Service Worker & PWA Manifest must revalidate immediately over HTTPS
+    app.get('/sw.js', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Service-Worker-Allowed', '/');
+      res.sendFile(path.join(distPath, 'sw.js'));
+    });
+
+    app.get('/manifest.webmanifest', (_req, res) => {
+      res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.sendFile(path.join(distPath, 'manifest.webmanifest'));
+    });
+
+    app.use(
+      express.static(distPath, {
+        setHeaders(res, filePath) {
+          if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          } else if (filePath.endsWith('index.html') || filePath.endsWith('registerSW.js')) {
+            res.setHeader('Cache-Control', 'no-cache');
+          }
+        },
+      })
+    );
+
+    app.get('*', (req, res) => {
+      if (req.path.startsWith('/api/')) {
+        res.status(404).json({ error: 'المسار المطلوب غير موجود.' });
+        return;
+      }
+      res.setHeader('Cache-Control', 'no-cache');
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`DBL Campus Server listening on http://0.0.0.0:${PORT}`);
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(
+      `DBL Campus Server listening on port ${PORT} (mode=${isProductionMode() ? 'production' : 'development'}, demo=${isDemoModeEnabled()})`
+    );
   });
+
+  const handleShutdown = (signal: string) => {
+    console.log(`Received ${signal}. Closing HTTP server and checkpointing SQLite WAL...`);
+    httpServer.close(() => {
+      closeDatabaseGracefully();
+      process.exit(0);
+    });
+    setTimeout(() => {
+      closeDatabaseGracefully();
+      process.exit(1);
+    }, 10_000).unref();
+  };
+
+  process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+  process.on('SIGINT', () => handleShutdown('SIGINT'));
 }
 
 if (process.env.DBL_SKIP_LISTEN !== '1') {

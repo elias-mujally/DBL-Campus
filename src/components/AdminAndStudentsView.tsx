@@ -19,6 +19,8 @@ import {
   RESPONSIBILITY_LABELS_AR,
   ROLE_LABELS_AR,
   apiFetch,
+  buildApiUrl,
+  getAuthToken,
 } from '../utils/api';
 
 interface AdminAndStudentsViewProps {
@@ -176,9 +178,32 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
       a.download = `DBL_Campus_Backup_${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      notify('تم تصدير النسخة الاحتياطية الكاملة لقاعدة البيانات');
+      notify('تم تصدير النسخة الاحتياطية الشاملة (JSON + SHA-256)');
     } catch (err: unknown) {
       notify(err instanceof Error ? err.message : 'تعذر تصدير النسخة الاحتياطية', 'error');
+    }
+  };
+
+  const handleDownloadSqliteBackup = async () => {
+    try {
+      const token = getAuthToken();
+      const res = await fetch(buildApiUrl('/api/admin/backup/sqlite'), {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'تعذر تصدير قاعدة البيانات الثنائية');
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `DBL_Campus_Database_${new Date().toISOString().slice(0, 10)}.sqlite`;
+      a.click();
+      URL.revokeObjectURL(url);
+      notify('تم تصدير نسخة قاعدة البيانات الثنائية (SQLite) بنجاح');
+    } catch (err: unknown) {
+      notify(err instanceof Error ? err.message : 'تعذر تصدير النسخة الثنائية', 'error');
     }
   };
 
@@ -225,7 +250,7 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
               <h2>النسخ الاحتياطي والاستعادة (Backup & Restore)</h2>
             </div>
             <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              قم بتصدير نسخة احتياطية كاملة بصيغة JSON تشمل جميع حسابات الطلاب، الجداول، التكاليف، الطلبات، وكشوف التأييد، أو استعد نسخة سابقة.
+              قم بتصدير نسخة احتياطية كاملة بصيغة JSON (محمية ببصمة SHA-256) أو نسخة SQLite ثنائية ذرية جاهزة للنقل بين الخوادم السحابية، أو استعد نسخة سابقة.
             </p>
             <div className="flex flex-wrap items-center gap-3 pt-2">
               <button
@@ -234,12 +259,21 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-teal-600 text-white hover:bg-teal-700"
               >
                 <Download className="w-4 h-4" />
-                <span>تصدير نسخة احتياطية شاملة</span>
+                <span>تصدير نسخة JSON شاملة</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDownloadSqliteBackup}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-slate-900 dark:bg-slate-700 text-white hover:opacity-90"
+              >
+                <Database className="w-4 h-4" />
+                <span>تنزيل قاعدة البيانات (.sqlite)</span>
               </button>
 
               <label className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
                 <Upload className="w-4 h-4" />
-                <span>استعادة من ملف نسخة احتياطية</span>
+                <span>استعادة من ملف JSON</span>
                 <input
                   type="file"
                   accept=".json"

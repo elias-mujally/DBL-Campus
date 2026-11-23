@@ -89,14 +89,14 @@ export const PWAInstallButton: React.FC = () => {
             </div>
             <div className="mt-4 space-y-3 text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
               <p>
-                يمكنك تثبيت المنصة كتطبيق مستقل (PWA) للوصول السريع إلى الجدول الدراسي والتكاليف عبر الشبكة المحلية:
+                يمكنك تثبيت المنصة كتطبيق مستقل (PWA) يعمل عبر الإنترنت بـ <strong>HTTPS</strong> للوصول السريع إلى الجدول الدراسي والتكاليف من أي مكان:
               </p>
               <ol className="list-decimal list-inside space-y-2 text-xs text-slate-600 dark:text-slate-400">
                 <li>
                   <strong>على الحاسوب (Chrome / Edge):</strong> اضغط على أيقونة التثبيت في شريط العنوان العلوي أو اختر <em>تثبيت تطبيق DBL Campus</em> من قائمة المتصفح.
                 </li>
                 <li>
-                  <strong>على الهاتف (Android / iOS Safari):</strong> اضغط على زر المشاركة (Share) ثم اختر <strong>إضافة إلى الشاشة الرئيسية (Add to Home Screen)</strong>.
+                  <strong>على الهاتف (Android / iOS Safari):</strong> افتح رابط المنصة عبر <strong>HTTPS</strong>، ثم اضغط على قائمة المتصفح أو زر المشاركة (Share) واختر <strong>إضافة إلى الشاشة الرئيسية (Add to Home Screen)</strong>.
                 </li>
               </ol>
             </div>

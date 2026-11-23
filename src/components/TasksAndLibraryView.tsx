@@ -20,7 +20,7 @@ import type {
   UserAccount,
 } from '../types';
 import { hasPermission } from '../utils/domainLogic';
-import { apiFetch, buildApiUrl, formatBytes, getAuthToken } from '../utils/api';
+import { apiFetch, buildApiUrl, formatBytes } from '../utils/api';
 
 // ==========================================
 // 1. TASKS MANAGEMENT VIEW (LIST & KANBAN)
@@ -521,6 +521,23 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     }
   };
 
+  const handleDownloadFile = async (file: LibraryFile) => {
+    try {
+      const res = await apiFetch<{ downloadUrl: string }>(
+        `/api/files/${encodeURIComponent(file.id)}/download-ticket`,
+        { method: 'POST' }
+      );
+      const a = document.createElement('a');
+      a.href = buildApiUrl(res.downloadUrl);
+      a.download = file.fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (err: unknown) {
+      notify(err instanceof Error ? err.message : 'تعذر تنزيل الملف', 'error');
+    }
+  };
+
   const filtered = files.filter((f) => {
     if (courseFilter !== 'ALL' && f.courseId !== courseFilter) return false;
     if (catFilter !== 'ALL' && f.category !== catFilter) return false;
@@ -534,8 +551,6 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     }
     return true;
   });
-
-  const token = getAuthToken();
 
   return (
     <div className="space-y-6">
@@ -641,14 +656,14 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               </span>
 
               <div className="flex items-center gap-2">
-                <a
-                  href={buildApiUrl(`/api/files/${f.id}/download?token=${encodeURIComponent(token)}`)}
-                  download={f.fileName}
+                <button
+                  type="button"
+                  onClick={() => handleDownloadFile(f)}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 dark:bg-teal-600 text-white font-semibold hover:opacity-90"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>تنزيل الملف</span>
-                </a>
+                </button>
                 {canUpload && (
                   <button
                     type="button"
