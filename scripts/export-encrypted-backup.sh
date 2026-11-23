@@ -19,4 +19,4 @@ trap 'rm -f "$temp"' EXIT
 printf 'header = "Authorization: Bearer %s"\n' "$token" |
   curl --config - --proto '=https' --silent --show-error --fail --max-time 300 "$origin/api/admin/backup" |
   age --recipient "$recipient" --output "$temp"
-mv -n "$temp" "$output"
+ln "$temp" "$output"

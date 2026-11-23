@@ -6,11 +6,13 @@ case "${APP_URL:-}" in
   https://*) ;;
   *) echo 'APP_URL must be the public HTTPS origin' >&2; exit 1 ;;
 esac
-if [ "${#DBL_SESSION_SECRET}" -lt 32 ] || [ "${#DBL_ADMIN_SETUP_CODE}" -lt 32 ]; then
+session_secret=${DBL_SESSION_SECRET:-}
+setup_secret=${DBL_ADMIN_SETUP_CODE:-}
+if [ "${#session_secret}" -lt 32 ] || [ "${#setup_secret}" -lt 32 ]; then
   echo 'Configure distinct session and first-run secrets with at least 32 characters' >&2
   exit 1
 fi
-if [ "$DBL_SESSION_SECRET" = "$DBL_ADMIN_SETUP_CODE" ]; then
+if [ "$session_secret" = "$setup_secret" ]; then
   echo 'Use separate secrets for sessions and first-run setup' >&2
   exit 1
 fi

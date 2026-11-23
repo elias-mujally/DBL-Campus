@@ -35,6 +35,9 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
       - id: config
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
@@ -48,6 +51,8 @@ jobs:
             test -n "$PRODUCTION_ORIGIN"
             mode=native
             origin=$(node --experimental-strip-types --input-type=module -e 'import {validateProductionOrigin} from "./src/utils/productionOrigin.ts"; console.log(validateProductionOrigin(process.env.PRODUCTION_ORIGIN))')
+            curl --proto '=https' --max-time 20 --silent --show-error --fail "$origin/api/health" |
+              jq --exit-status '.status=="ok" and .storageWritable==true and .demoEnabled==false' >/dev/null
           fi
           printf 'origin=%s\nmode=%s\n' "$origin" "$mode" >> "$GITHUB_OUTPUT"
 
