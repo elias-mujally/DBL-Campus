@@ -193,6 +193,8 @@ export const AnnouncementsView: React.FC<AnnouncementsViewProps> = ({
         {filtered.map((ann) => (
           <div
             key={ann.id}
+            id={'result-' + ann.id}
+            tabIndex={-1}
             className={`rounded-xl border p-5 transition-colors ${
               ann.priority === 'urgent'
                 ? 'border-rose-300 dark:border-rose-800 bg-rose-50/30 dark:bg-rose-950/20'

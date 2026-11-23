@@ -253,6 +253,8 @@ export const RequestsView: React.FC<RequestsViewProps> = ({
           return (
             <div
               key={req.id}
+              id={'result-' + req.id}
+              tabIndex={-1}
               className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5"
             >
               {/* Top Metadata Line (Zero-Pill clean unboxed metadata) */}

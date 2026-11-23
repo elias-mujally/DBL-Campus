@@ -128,26 +128,6 @@ export function detectScheduleConflicts(lectures: Lecture[]): ScheduleConflict[]
 }
 
 /**
- * Computes a deterministic content version fingerprint for a request so we can detect
- * substantial text edits after endorsement gathering has started.
- */
-export function computeRequestVersionHash(
-  subject: string,
-  details: string,
-  proposedSolution: string
-): string {
-  const normalized = [subject, details, proposedSolution]
-    .map((s) => s.trim().replace(/\s+/g, ' '))
-    .join('|');
-  let hash = 2166136261;
-  for (let i = 0; i < normalized.length; i++) {
-    hash ^= normalized.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return `v-${(hash >>> 0).toString(16)}`;
-}
-
-/**
  * Determines if editing a request requires resetting existing student endorsements.
  */
 export function requiresEndorsementResetOnEdit(

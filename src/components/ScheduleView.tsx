@@ -352,6 +352,8 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
           {courses.map((c) => (
             <div
               key={c.id}
+              id={'result-' + c.id}
+              tabIndex={-1}
               className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 flex flex-col justify-between"
             >
               <div>
@@ -446,6 +448,8 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                       return (
                         <div
                           key={lec.id}
+                          id={'result-' + lec.id}
+                          tabIndex={-1}
                           className={`rounded-xl border p-4 transition-all ${meta.borderClass} ${
                             hasConflict ? 'ring-2 ring-rose-500' : ''
                           }`}

@@ -1,8 +1,8 @@
+import { computeRequestVersionHash } from './requestVersion.ts';
 import Database from 'better-sqlite3';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { computeRequestVersionHash } from '../utils/domainLogic.ts';
 
 export const DATA_DIR = process.env.DBL_DATA_DIR
   ? path.resolve(process.cwd(), process.env.DBL_DATA_DIR)
@@ -272,6 +272,36 @@ export function runMigrations(): void {
       created_at TEXT NOT NULL
     );
   `);
+  if (db.pragma('user_version', { simple: true }) === 0) {
+    db.transaction(() => {
+      db.exec('ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0');
+      db.pragma('user_version = 1');
+    })();
+  }
+  if (db.pragma('user_version', { simple: true }) === 1) {
+    db.transaction(() => {
+      db.exec('ALTER TABLE assignments ADD COLUMN attachment_file_id TEXT REFERENCES library_files(id) ON DELETE SET NULL');
+      db.pragma('user_version = 2');
+    })();
+  }
+  if (db.pragma('user_version', { simple: true }) === 2) {
+    db.transaction(() => {
+      const shared = db.prepare(`SELECT password_hash FROM users WHERE is_demo=0 GROUP BY password_hash HAVING COUNT(*) > 1`).pluck().all() as string[];
+      const rotate = db.prepare('UPDATE users SET password_hash=?, must_change_password=1 WHERE id=?');
+      const revoke = db.prepare('DELETE FROM sessions WHERE user_id=?');
+      const accounts = db.prepare('SELECT id, password_hash, role FROM users WHERE is_demo=0').all() as
+        { id: string; password_hash: string; role: string }[];
+      for (const account of accounts) {
+        if (account.role === 'representative') continue;
+        const expired = shared.includes(account.password_hash) || verifyPassword('Student@2026', account.password_hash);
+        if (expired) {
+          rotate.run(hashPassword(crypto.randomBytes(24).toString('base64url')), account.id);
+          revoke.run(account.id);
+        }
+      }
+      db.pragma('user_version = 3');
+    })();
+  }
 }
 
 export function logAudit(
@@ -621,17 +651,17 @@ export function seedDemoEnvironment(forceReset = false): void {
     const req1Subject = 'طلب جدولة الاختبارات النصفية بفاصل زمني لا يقل عن يومين بين كل اختبار';
     const req1Details = 'يعاني طلاب المستوى الأول من تكدس مواعيد الاختبارات النصفية للمقررات البرمجية والرياضية في أسبوع واحد (برمجة الحاسوب 2، الرياضيات 2، وتصميم المنطق الرقمي)، مما يؤثر سلباً على التحصيل الأكاديمي وجودة الأداء.';
     const req1Solution = 'توزيع جدول الاختبارات النصفية على أسبوعين دراسيين بحيث لا يزيد عدد الاختبارات عن اختبارين في الأسبوع الواحد، مع ترك فاصل يومين على الأقل قبل مقرري البرمجة والرياضيات.';
-    const req1Hash = computeRequestVersionHash(req1Subject, req1Details, req1Solution);
+    const req1Hash = computeRequestVersionHash(req1Subject, req1Details, req1Solution, 'الأخ/ رئيس قسم تقنية المعلومات وعلوم الحاسوب المحترم');
 
     const req2Subject = 'توفير ساعات إضافية مفتوحة في معمل البرمجة B2 للتدريب العملي';
     const req2Details = 'الوقت المخصص للمعمل الأسبوعي (ساعتان) غير كافٍ لإنجاز المشاريع البرمجية لمقرري برمجة الحاسوب 2 وتصميم الويب للطلاب الذين لا يمتلكون حواسيب محمولة.';
     const req2Solution = 'فتح معمل البرمجة B2 يومي الإثنين والأربعاء من الساعة 12:30 ظهراً حتى 02:30 عصراً بإشراف فني المعمل.';
-    const req2Hash = computeRequestVersionHash(req2Subject, req2Details, req2Solution);
+    const req2Hash = computeRequestVersionHash(req2Subject, req2Details, req2Solution, 'الأخ/ مدير المعامل الحاسوبية في الكلية المحترم');
 
     const req3Subject = 'شكوى بخصوص تعطل جهاز العرض الضوئي (Projector) في قاعة 204';
     const req3Details = 'جهاز العرض الضوئي في قاعة 204 يعاني من ضعف الإضاءة وانقطاع الإشارة المتكرر أثناء محاضرتي المنطق الرقمي والإحصاء.';
     const req3Solution = 'صيانة جهاز العرض أو استبدال كابل التوصيل HDMI وتوفير جهاز احتياطي.';
-    const req3Hash = computeRequestVersionHash(req3Subject, req3Details, req3Solution);
+    const req3Hash = computeRequestVersionHash(req3Subject, req3Details, req3Solution, 'الأخ/ مسؤول الشؤون الفنية والصيانة بالكلية المحترم');
 
     const insertRequest = db.prepare(`
       INSERT OR REPLACE INTO requests (id, reference_number, request_type, is_collective, target_authority, subject, details, proposed_solution, status, created_by, assigned_to, authority_response, version_hash, created_at, is_demo)

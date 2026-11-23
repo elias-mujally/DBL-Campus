@@ -16,7 +16,7 @@ export function validateServerBaseUrl(rawInput: string): {
 
   let candidate = trimmed;
   if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(candidate)) {
-    candidate = `http://${candidate}`;
+    candidate = `https://${candidate}`;
   }
 
   try {
@@ -34,6 +34,9 @@ export function validateServerBaseUrl(rawInput: string): {
         normalized: '',
         errorAr: 'عنوان الخادم غير مكتمل.',
       };
+    }
+    if (parsed.protocol === 'http:' && !/^(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)$/.test(parsed.hostname)) {
+      return { valid: false, normalized: '', errorAr: 'يتطلب عنوان الخادم العام اتصال HTTPS.' };
     }
     const cleanOrigin = `${parsed.protocol}//${parsed.host}`;
     return { valid: true, normalized: cleanOrigin };

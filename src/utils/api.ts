@@ -63,3 +63,15 @@ export const RESPONSIBILITY_LABELS_AR: Record<string, string> = {
   permissions: 'إدارة الصلاحيات وسجل العمليات',
   backup: 'النسخ الاحتياطي والاستعادة',
 };
+
+export async function downloadLibraryFile(id: string, name: string): Promise<void> {
+  const { downloadUrl } = await apiFetch<{ downloadUrl: string }>(
+    `/api/files/${encodeURIComponent(id)}/download-ticket`, { method: 'POST' }
+  );
+  const link = document.createElement('a');
+  link.href = buildApiUrl(downloadUrl);
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}

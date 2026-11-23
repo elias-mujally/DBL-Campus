@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { FileText, Printer, Users, PenTool, X } from 'lucide-react';
 import type { CohortRequest } from '../types';
 import { REQUEST_STATUS_LABELS_AR } from '../utils/domainLogic';
@@ -12,7 +13,7 @@ interface OfficialDocumentModalProps {
 
 export const OfficialDocumentModal: React.FC<OfficialDocumentModalProps> = ({
   request,
-  cohortName = 'دفعة تقنية المعلومات وعلوم الحاسوب — المستوى الأول',
+  cohortName = 'الدفعة الجامعية',
   representativeName,
   onClose,
 }) => {
@@ -29,9 +30,9 @@ export const OfficialDocumentModal: React.FC<OfficialDocumentModalProps> = ({
   const endorsements = request.endorsements || [];
   const manualBlankRows = Array.from({ length: manualRowsCount }, (_, i) => i + 1);
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 p-4 md:p-8"
+      className="official-document-print fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 p-4 md:p-8"
       role="dialog"
       aria-modal="true"
       aria-labelledby="official-doc-modal-title"
@@ -140,7 +141,6 @@ export const OfficialDocumentModal: React.FC<OfficialDocumentModalProps> = ({
           <div className="flex items-start justify-between border-b-2 border-slate-900 pb-4">
             <div className="space-y-1 text-xs font-semibold">
               <p>الجمهورية اليمنية — التعليم العالي</p>
-              <p>كلية الحاسوب وتقنية المعلومات</p>
               <p>مندوبية الدفعة الجامعية — {cohortName}</p>
             </div>
             <div className="text-center">
@@ -377,6 +377,7 @@ export const OfficialDocumentModal: React.FC<OfficialDocumentModalProps> = ({
           </div>
         </div>
       )}
-    </div>
+    </div>,
+    document.body
   );
 };

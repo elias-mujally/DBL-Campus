@@ -7,8 +7,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 
-COPY package.json ./
-RUN npm install --legacy-peer-deps
+COPY package.json package-lock.json ./
+RUN npm ci --legacy-peer-deps
 
 COPY tsconfig.json vite.config.ts index.html metadata.json ./
 COPY public ./public
@@ -32,7 +32,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server.ts ./server.ts
 COPY --from=builder /app/src/server ./src/server
-COPY --from=builder /app/src/utils/domainLogic.ts ./src/utils/domainLogic.ts
+COPY --from=builder /app/src/utils ./src/utils
 COPY --from=builder /app/src/types.ts ./src/types.ts
 
 RUN mkdir -p /data/uploads /data/releases /data/backups \

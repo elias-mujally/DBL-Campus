@@ -1,3 +1,4 @@
+import { csvCell } from '../utils/rosterCsv';
 import React, { useEffect, useState } from 'react';
 import {
   Database,
@@ -57,6 +58,8 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
   const [roleFilter, setRoleFilter] = useState('ALL');
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [showCsvModal, setShowCsvModal] = useState(false);
+  const [issueNewPassword, setIssueNewPassword] = useState(false);
+  const [newCredential, setNewCredential] = useState('');
   const [editingMember, setEditingMember] = useState<UserAccount | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [confirmDemoPurge, setConfirmDemoPurge] = useState(false);
@@ -65,16 +68,15 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
   const [universityId, setUniversityId] = useState('');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('Student@2026');
+  const [password, setPassword] = useState('');
   const [groupName, setGroupName] = useState('A');
   const [role, setRole] = useState<UserRole>('student');
   const [responsibilities, setResponsibilities] = useState<ResponsibilityKey[]>([]);
 
   // CSV Import state
-  const [csvText, setCsvText] = useState(
-    '20251040,أنس المعمري,anas@student.dbl.local,A\n20251041,هديل السقاف,hadeel@student.dbl.local,B'
-  );
-  const [csvDefaultPass, setCsvDefaultPass] = useState('Student@2026');
+  const [csvText, setCsvText] = useState('');
+  const [restorePassword, setRestorePassword] = useState('');
+
 
   useEffect(() => {
     if (mode === 'admin' && (isRepresentative || hasPermission(user, 'permissions'))) {
@@ -103,6 +105,7 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
       setUniversityId('');
       setFullName('');
       setEmail('');
+      setPassword('');
       setShowAddUserModal(false);
       await onRefresh();
     } catch (err: unknown) {
@@ -114,7 +117,7 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
     e.preventDefault();
     if (!editingMember) return;
     try {
-      await apiFetch(`/api/users/${editingMember.id}`, {
+      const result = await apiFetch<{ initialPassword?: string }>(`/api/users/${editingMember.id}`, {
         method: 'PUT',
         body: JSON.stringify({
           fullName: editingMember.fullName,
@@ -122,10 +125,13 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
           role: editingMember.role,
           responsibilities: editingMember.responsibilities,
           isActive: editingMember.isActive,
+          resetPassword: issueNewPassword ? true : undefined,
         }),
       });
       notify('تم تحديث بيانات وصلاحيات العضو بنجاح');
       setEditingMember(null);
+      setIssueNewPassword(false);
+      setNewCredential(result.initialPassword || '');
       await onRefresh();
     } catch (err: unknown) {
       notify(err instanceof Error ? err.message : 'تعذر التحديث', 'error');
@@ -135,11 +141,18 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
   const handleImportCsv = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await apiFetch<{ imported: number; skipped: number }>('/api/users/import-csv', {
+      const res = await apiFetch<{ imported: number; skipped: number; invitations: { universityId: string; initialPassword: string }[] }>('/api/users/import-csv', {
         method: 'POST',
-        body: JSON.stringify({ csvText, defaultPassword: csvDefaultPass }),
+        body: JSON.stringify({ csvText }),
       });
       notify(`تم استيراد ${res.imported} طالب بنجاح (وتخطي ${res.skipped} مكرر)`);
+      if (res.invitations.length) {
+        downloadCsv('DBL_Campus_Invitations.csv', [
+          'university_id,initial_password',
+          ...res.invitations.map(item => [item.universityId, item.initialPassword].map(csvCell).join(',')),
+        ].join('\n'));
+      }
+      setCsvText('');
       setShowCsvModal(false);
       await onRefresh();
     } catch (err: unknown) {
@@ -147,29 +160,26 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
     }
   };
 
-  const handleExportCsv = () => {
-    const header = 'university_id,full_name,email,group_name,role,is_active\n';
-    const body = members
-      .map(
-        (m) =>
-          `${m.universityId},"${m.fullName.replace(/"/g, '""')}",${m.email},${m.groupName},${
-            m.role
-          },${m.isActive ? 'active' : 'disabled'}`
-      )
-      .join('\n');
-    const blob = new Blob(['\uFEFF' + header + body], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `DBL_Campus_Cohort_Roster_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
+  const downloadCsv = (filename: string, content: string) => {
+    const url = URL.createObjectURL(new Blob(['\uFEFF' + content], { type: 'text/csv;charset=utf-8;' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleExportCsv = () => {
+    const header = 'university_id,full_name,email,group_name,role,is_active';
+    const rows = members.map(m => [m.universityId, m.fullName, m.email, m.groupName, m.role,
+      m.isActive ? 'active' : 'disabled'].map(csvCell).join(','));
+    downloadCsv(`DBL_Campus_Cohort_Roster_${new Date().toISOString().slice(0, 10)}.csv`, [header, ...rows].join('\n'));
   };
 
   const handleDownloadBackup = async () => {
     try {
       const data = await apiFetch<Record<string, unknown>>('/api/admin/backup');
-      const blob = new Blob([JSON.stringify(data, null, 2)], {
+      const blob = new Blob([JSON.stringify(data)], {
         type: 'application/json;charset=utf-8',
       });
       const url = URL.createObjectURL(blob);
@@ -209,17 +219,18 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
 
   const handleRestoreBackupFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    e.target.value = '';
+    if (!file || !restorePassword || !window.confirm('ستُستبدل بيانات الدفعة وتُغلق الجلسات. هل تريد المتابعة؟')) return;
     const reader = new FileReader();
     reader.onload = async () => {
       try {
         const parsed = JSON.parse(String(reader.result || '{}'));
         await apiFetch('/api/admin/restore', {
           method: 'POST',
-          body: JSON.stringify(parsed),
+          body: JSON.stringify({ ...parsed, currentPassword: restorePassword }),
         });
         notify('تمت استعادة النسخة الاحتياطية بنجاح');
-        await onRefresh();
+        window.location.reload();
       } catch (err: unknown) {
         notify(
           err instanceof Error ? err.message : 'ملف النسخة الاحتياطية غير صالح',
@@ -244,7 +255,7 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
 
         {/* Backup & Restore + Demo Environment Controls */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-4">
+          {isRepresentative && <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-4">
             <div className="flex items-center gap-2 text-base font-bold text-slate-900 dark:text-slate-100">
               <Database className="w-5 h-5 text-teal-600" />
               <h2>النسخ الاحتياطي والاستعادة (Backup & Restore)</h2>
@@ -252,6 +263,11 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
             <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
               قم بتصدير نسخة احتياطية كاملة بصيغة JSON (محمية ببصمة SHA-256) أو نسخة SQLite ثنائية ذرية جاهزة للنقل بين الخوادم السحابية، أو استعد نسخة سابقة.
             </p>
+            <label className="block text-xs">
+              كلمة المرور الحالية للاستعادة
+              <input type="password" autoComplete="current-password" value={restorePassword}
+                onChange={event => setRestorePassword(event.target.value)} className="block mt-1 rounded border px-2 py-1" />
+            </label>
             <div className="flex flex-wrap items-center gap-3 pt-2">
               <button
                 type="button"
@@ -277,14 +293,15 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
                 <input
                   type="file"
                   accept=".json"
+                  disabled={!restorePassword}
                   onChange={handleRestoreBackupFile}
                   className="hidden"
                 />
               </label>
             </div>
-          </div>
+          </div>}
 
-          {isRepresentative && (
+          {isRepresentative && user.isDemo && (
             <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-4">
               <div className="flex items-center gap-2 text-base font-bold text-slate-900 dark:text-slate-100">
                 <Shield className="w-5 h-5 text-amber-600" />
@@ -402,6 +419,11 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
 
   return (
     <div className="space-y-6">
+      {newCredential && <aside role="status" className="rounded-lg border p-3">
+        <p>رمز الدخول الأولي. سلّمه لصاحب الحساب على انفراد.</p>
+        <code dir="ltr">{newCredential}</code>
+        <button type="button" className="mx-3" onClick={() => setNewCredential('')}>إخفاء الرمز</button>
+      </aside>}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
@@ -539,7 +561,8 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
                     <td className="px-4 py-3">
                       <button
                         type="button"
-                        onClick={() => setEditingMember({ ...m })}
+                        disabled={!isRepresentative && m.role !== 'student'}
+                        onClick={() => { setIssueNewPassword(false); setEditingMember({ ...m }); }}
                         className="inline-flex items-center gap-1 text-teal-700 dark:text-teal-400 font-semibold hover:underline"
                       >
                         <Edit3 className="w-3.5 h-3.5" />
@@ -702,6 +725,10 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
               تعديل بيانات وصلاحيات: {editingMember.fullName}
             </h3>
             <form onSubmit={handleUpdateMember} className="mt-4 space-y-3 text-xs">
+              {isRepresentative && editingMember.id !== user.id && <label className="flex items-center gap-2">
+                <input type="checkbox" checked={issueNewPassword} onChange={event => setIssueNewPassword(event.target.checked)} />
+                إصدار رمز دخول فردي وإغلاق جلسات العضو
+              </label>}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-semibold mb-1">الاسم الكامل</label>
@@ -837,16 +864,7 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3 font-mono text-xs"
                 />
               </div>
-              <div>
-                <label className="block font-semibold mb-1">كلمة المرور الأولية للحسابات المستوردة</label>
-                <input
-                  type="text"
-                  value={csvDefaultPass}
-                  onChange={(e) => setCsvDefaultPass(e.target.value)}
-                  required
-                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 font-mono"
-                />
-              </div>
+              <p>ينزّل التطبيق ملف رموز فردية مرة واحدة. سلّم كل طالب رمزه على انفراد واحذف الملف بعد التوزيع.</p>
               <div className="pt-3 flex justify-end gap-2 border-t border-slate-200 dark:border-slate-800">
                 <button
                   type="button"

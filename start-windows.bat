@@ -15,7 +15,7 @@ if %ERRORLEVEL% NEQ 0 (
 
 if not exist "node_modules" (
     echo [1/3] جاري تثبيت الحزم البرمجية لأول مرة...
-    call npm install
+    call npm ci --legacy-peer-deps
 )
 
 echo [2/3] عناوين الشبكة المحلية (LAN IP) للدخول من الهواتف والأجهزة الأخرى على نفس الشبكة:

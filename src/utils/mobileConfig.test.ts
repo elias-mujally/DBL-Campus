@@ -9,7 +9,8 @@ test('validateServerBaseUrl accepts valid LAN http/https URLs and strips trailin
 
   const autoHttp = validateServerBaseUrl('192.168.1.25:3000');
   assert.equal(autoHttp.valid, true);
-  assert.equal(autoHttp.normalized, 'http://192.168.1.25:3000');
+  assert.equal(autoHttp.normalized, 'https://192.168.1.25:3000');
+  assert.equal(validateServerBaseUrl('http://campus.example.invalid').valid, false);
 
   const emptyReset = validateServerBaseUrl('   ');
   assert.equal(emptyReset.valid, true);

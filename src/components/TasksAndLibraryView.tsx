@@ -20,7 +20,7 @@ import type {
   UserAccount,
 } from '../types';
 import { hasPermission } from '../utils/domainLogic';
-import { apiFetch, buildApiUrl, formatBytes } from '../utils/api';
+import { apiFetch, downloadLibraryFile, formatBytes } from '../utils/api';
 
 // ==========================================
 // 1. TASKS MANAGEMENT VIEW (LIST & KANBAN)
@@ -186,6 +186,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
           {tasks.map((tsk) => (
             <div
               key={tsk.id}
+              id={'result-' + tsk.id}
+              tabIndex={-1}
               className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5"
             >
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
@@ -523,16 +525,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
   const handleDownloadFile = async (file: LibraryFile) => {
     try {
-      const res = await apiFetch<{ downloadUrl: string }>(
-        `/api/files/${encodeURIComponent(file.id)}/download-ticket`,
-        { method: 'POST' }
-      );
-      const a = document.createElement('a');
-      a.href = buildApiUrl(res.downloadUrl);
-      a.download = file.fileName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      await downloadLibraryFile(file.id, file.fileName);
     } catch (err: unknown) {
       notify(err instanceof Error ? err.message : 'تعذر تنزيل الملف', 'error');
     }
@@ -627,6 +620,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         {filtered.map((f) => (
           <div
             key={f.id}
+            id={'result-' + f.id}
+            tabIndex={-1}
             className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 flex flex-col justify-between"
           >
             <div>

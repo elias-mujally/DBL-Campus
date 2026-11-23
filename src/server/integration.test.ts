@@ -1,8 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dbl-demo-test-'));
+process.env.NODE_ENV = 'test';
+process.env.DBL_ALLOW_DEMO = 'true';
+process.env.DBL_FORCE_HTTPS = 'false';
+process.env.DBL_DATA_DIR = directory;
+process.env.DBL_DB_PATH = path.join(directory, 'integration.sqlite');
+process.env.DBL_UPLOADS_DIR = path.join(directory, 'uploads');
+process.env.DBL_RELEASES_DIR = path.join(directory, 'releases');
 
 process.env.DBL_SKIP_LISTEN = '1';
-process.env.DBL_DB_PATH = './data/test_dbl_campus.sqlite';
 
 const { app } = await import('../../server.ts');
 const { db, seedDemoEnvironment } = await import('./db.ts');
@@ -10,7 +21,9 @@ const { hashSessionToken } = await import('./security.ts');
 
 seedDemoEnvironment(true);
 
-const server = app.listen(0);
+const server = app.listen(0, '127.0.0.1');
+await new Promise<void>(resolve => server.once('listening', resolve));
+test.after(() => { server.close(); db.close(); fs.rmSync(directory, { recursive: true, force: true }); });
 const address = server.address();
 const port = typeof address === 'object' && address ? address.port : 3099;
 const BASE = `http://127.0.0.1:${port}`;
@@ -345,7 +358,11 @@ test('End-to-End Integration Suite covering Scenarios 1–25', async (t) => {
     assert.equal(backupRes.status, 200);
     assert.ok(backupRes.data.tables);
 
-    const restoreRes = await api('/api/admin/restore', 'POST', backupRes.data, repToken);
+    const restoreRes = await api('/api/admin/restore', 'POST', { ...backupRes.data, currentPassword: 'Demo@2026' }, repToken);
+    assert.equal((await api('/api/courses', 'GET', undefined, repToken)).status, 401);
+    repToken = (await api('/api/auth/login', 'POST', { identifier: 'rep@demo.dbl.local', password: 'Demo@2026' })).data.token;
+    newStudentToken = (await api('/api/auth/login', 'POST', { identifier: '20259901', password: 'TestPass@2026' })).data.token;
+    coordToken = (await api('/api/auth/login', 'POST', { identifier: 'coord@demo.dbl.local', password: 'Demo@2026' })).data.token;
     assert.equal(restoreRes.status, 200);
   });
 
@@ -466,13 +483,15 @@ test('End-to-End Integration Suite covering Scenarios 1–25', async (t) => {
 
     // 5. HTTPS redirect behind proxy when DBL_FORCE_HTTPS=true (exempting /api/health)
     const prevForceHttps = process.env.DBL_FORCE_HTTPS;
+    const previousUrl = process.env.APP_URL;
+    process.env.APP_URL = 'https://campus.university.edu';
     process.env.DBL_FORCE_HTTPS = 'true';
     try {
       const redirected = await fetch(`${BASE}/api/auth/status`, {
         headers: { 'X-Forwarded-Proto': 'http' },
         redirect: 'manual',
       });
-      assert.equal(redirected.status, 301);
+      assert.equal(redirected.status, 308);
       assert.ok(redirected.headers.get('location')?.startsWith('https://'));
 
       const healthNoRedirect = await fetch(`${BASE}/api/health`, {
@@ -481,6 +500,7 @@ test('End-to-End Integration Suite covering Scenarios 1–25', async (t) => {
       });
       assert.equal(healthNoRedirect.status, 200);
     } finally {
+      if (previousUrl === undefined) delete process.env.APP_URL; else process.env.APP_URL = previousUrl;
       if (prevForceHttps === undefined) delete process.env.DBL_FORCE_HTTPS;
       else process.env.DBL_FORCE_HTTPS = prevForceHttps;
     }
@@ -509,7 +529,7 @@ test('End-to-End Integration Suite covering Scenarios 1–25', async (t) => {
     const tamperedRestore = await api(
       '/api/admin/restore',
       'POST',
-      { ...backup.data, checksumSha256: '0'.repeat(64) },
+      { ...backup.data, currentPassword: 'Demo@2026', checksumSha256: '0'.repeat(64) },
       repToken
     );
     assert.equal(tamperedRestore.status, 400);
@@ -522,5 +542,4 @@ test('End-to-End Integration Suite covering Scenarios 1–25', async (t) => {
     assert.equal(sqliteBuf.subarray(0, 16).toString('ascii'), 'SQLite format 3\0');
   });
 
-  server.close();
 });

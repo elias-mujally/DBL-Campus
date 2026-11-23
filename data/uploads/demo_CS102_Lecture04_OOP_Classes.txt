@@ -1,5 +1,0 @@
-DBL Campus - Computer Programming 2 (CS102)
-Lecture 04: Object-Oriented Programming in C++
-1. Encapsulation & Access Specifiers (public, private, protected)
-2. Constructors & Destructors
-3. Member Functions & const correctness
