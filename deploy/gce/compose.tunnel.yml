@@ -1,0 +1,8 @@
+# Requires Docker Compose 2.24.4 or newer for !override.
+# cloudflared connects on the host to this loopback HTTP origin.
+services:
+  caddy:
+    ports: !override
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./deploy/gce/Caddyfile.tunnel:/etc/caddy/Caddyfile:ro

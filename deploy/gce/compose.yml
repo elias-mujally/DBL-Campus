@@ -1,0 +1,21 @@
+services:
+  app:
+    image: ${CAMPUS_IMAGE:?Load the tested linux/amd64 release image and set CAMPUS_IMAGE}
+    pull_policy: never
+    init: true
+    mem_limit: 512m
+    pids_limit: 128
+    environment:
+      NODE_OPTIONS: --max-old-space-size=320
+    logging:
+      options:
+        max-size: "5m"
+        max-file: "3"
+    volumes:
+      - ${CAMPUS_DATA_PATH:?Mount the dedicated persistent disk and set CAMPUS_DATA_PATH}:/data
+  caddy:
+    mem_limit: 128m
+    logging:
+      options:
+        max-size: "5m"
+        max-file: "3"
