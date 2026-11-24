@@ -3,7 +3,10 @@
 set -euo pipefail
 umask 077
 
-[[ $EUID == 0 && $# == 1 ]] || { echo 'Run as root with a profile name.' >&2; exit 2; }
+[[ $EUID == 0 && ( $# == 1 || ( $# == 2 && $2 == --recreate-app ) ) ]] || {
+  echo 'Run as root with a profile name and optional --recreate-app.' >&2
+  exit 2
+}
 profile="$1"
 [[ "$profile" == live || "$profile" =~ ^(pilot|recovery)-[a-f0-9]{12}$ ]] || exit 2
 runtime=/opt/dbl-campus/current
@@ -31,7 +34,12 @@ if [[ ! -e "$envfile" ]]; then
 fi
 
 cd "$runtime"
-docker compose --project-name dbl-campus --env-file "$envfile" \
-  --file docker-compose.yml --file deploy/gce/compose.yml --file deploy/gce/compose.tunnel.yml \
-  up -d --wait --wait-timeout 100 --no-build --pull never --force-recreate
+compose=(docker compose --project-name dbl-campus --env-file "$envfile"
+  --file docker-compose.yml --file deploy/gce/compose.yml --file deploy/gce/compose.tunnel.yml)
+up=(up -d --wait --wait-timeout 100 --no-build --pull never)
+if [[ ${2:-} == --recreate-app ]]; then
+  "${compose[@]}" "${up[@]}" --no-deps --force-recreate app
+else
+  "${compose[@]}" "${up[@]}"
+fi
 printf '%s\n' "$profile" >/etc/dbl-campus/active-profile

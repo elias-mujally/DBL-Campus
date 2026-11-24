@@ -6,3 +6,9 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - ./deploy/gce/Caddyfile.tunnel:/etc/caddy/Caddyfile:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/api/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
