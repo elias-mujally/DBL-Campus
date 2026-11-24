@@ -34,7 +34,7 @@ on:
       publish_release:
         description: Publish GitHub Release immediately instead of creating a draft (used with release tags).
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: read
@@ -76,7 +76,9 @@ jobs:
             [[ "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
             if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
               [[ "$GITHUB_REF" == "refs/heads/main" ]]
+              if git rev-parse -q --verify "refs/tags/${release_tag}^{commit}" >/dev/null; then  
               [[ "$(git rev-parse "refs/tags/${release_tag}^{commit}")" == "$GITHUB_SHA" ]]
+              fi
             fi
             version_name="${release_tag#v}"
           else
@@ -145,7 +147,7 @@ jobs:
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || secrets.ANDROID_KEY_ELIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
@@ -187,7 +189,9 @@ jobs:
           fi
 
           apksigner=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
-          "$apksigner" verify --verbose --print-certs "artifacts/$apk_name"
+          apksigner_output=$("$apksigner" verify --verbose --print-certs "artifacts/$apk_name")
+          printf '%s\n' "$apksigner_output"
+          cert_sha256=$(printf '%s\n' "$apksigner_output" | sed -n 's/.*certificate SHA-256 digest: //p' | head -n 1)
           python3 scripts/check-native-package.py "artifacts/$apk_name" "$DBL_NATIVE_SERVER_URL"
 
           apk_sha256=$(sha256sum "artifacts/$apk_name" | awk '{print tolower($1)}')
@@ -208,6 +212,7 @@ jobs:
             echo "- **Server Origin:** \`$DBL_NATIVE_SERVER_URL\`"
             echo "- **Release Signed:** \`$signed\`"
             echo "- **\`DBL_ANDROID_RELEASE_SHA256\`:** \`$apk_sha256\`"
+            echo "- **Signing Certificate SHA-256:** \`${cert_sha256:-unavailable}\`"
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Grant emulator access to KVM
         run: |
@@ -293,9 +298,9 @@ jobs:
           path: artifacts/
           if-no-files-found: error
 
-  stage-mobile-release:
+  release-android:
     name: Stage mobile release and checksums
-    needs: [mobile-config, android, ios]
+    needs: [mobile-config, android]
     if: needs.mobile-config.outputs.release_tag != '' && needs.android.outputs.signed == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -305,46 +310,42 @@ jobs:
         with:
           name: Android-signed-release
           path: release-files
-      - uses: actions/download-artifact@v8
-        with:
-          name: iOS-unsigned-for-signing
-          path: release-files
       - name: Verify checksums and create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.mobile-config.outputs.release_tag }}
           PUBLISH_RELEASE: ${{ needs.mobile-config.outputs.publish_release }}
           ANDROID_SHA256: ${{ needs.android.outputs.sha256 }}
-          IOS_SHA256: ${{ needs.ios.outputs.sha256 }}
         run: |
           set -euo pipefail
-          (cd release-files && sha256sum --check SHA256SUMS.txt && sha256sum --check SHA256SUMS-iOS.txt)
-          {
-            printf 'DBL_ANDROID_RELEASE_SHA256=%s\n' "$ANDROID_SHA256"
-            printf 'DBL_IOS_RELEASE_SHA256=%s\n' "$IOS_SHA256"
-          } > release-files/release-checksums.env
-
+          (cd release-files && sha256sum --check SHA256SUMS.txt)
+         
           draft_flag="--draft"
           if [[ "$PUBLISH_RELEASE" == "true" ]]; then
             draft_flag=""
           fi
 
           notes=$(cat <<EOF
-          Signed Android APK and unsigned iOS IPA build for DBL Campus $RELEASE_TAG.
+          Signed Android APK build for DBL Campus $RELEASE_TAG.
 
           ### Automated SHA-256 Checksums (\`server.ts\`)
           \`\`\`env
           DBL_ANDROID_RELEASE_SHA256=$ANDROID_SHA256
-          DBL_IOS_RELEASE_SHA256=$IOS_SHA256
           \`\`\`
-          *(Note: Recompute \`DBL_IOS_RELEASE_SHA256\` after signing the iOS IPA with your Apple Developer certificate.)*
           EOF
           )
 
-          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag $draft_flag \
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" $draft_flag \
             --title "DBL Campus $RELEASE_TAG" \
             --notes "$notes" \
             release-files/DBL-Campus-Android.apk \
-            release-files/SHA256SUMS.txt \
-            release-files/SHA256SUMS-iOS.txt \
-            release-files/release-checksums.env
+            release-files/SHA256SUMS.txt 
+      - name: Verify published release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.mobile-config.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p verify-release
+            gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir verify-release --pattern "DBL-Campus-Android.apk" --pattern "SHA256SUMS.txt"
+            (cd verify-release && sha256sum --check SHA256SUMS.txt)
