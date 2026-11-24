@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Download, WifiOff, X } from 'lucide-react';
+import { isNativeCapacitorApp } from '../utils/mobileConfig';
+import { shouldHidePwaInstallUi } from '../utils/nativeBridge';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -40,6 +42,7 @@ export const PWAInstallButton: React.FC = () => {
   }, []);
 
   if (isInstalled) return null;
+if (shouldHidePwaInstallUi(isNativeCapacitorApp())) return null;
 
   const handleInstallClick = async () => {
     if (deferredPrompt) {
