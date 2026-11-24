@@ -36,9 +36,10 @@ import type {
   ScheduleConflict,
   UserAccount,
 } from './types';
-import { ROLE_LABELS_AR, apiFetch, getAuthToken, setAuthToken } from './utils/api';
+import { ROLE_LABELS_AR, apiFetch, getAuthToken, setAuthToken, persistAuthToken, restoreAndValidateSession } from './utils/api';
 import { hasPermission } from './utils/domainLogic';
-import { getSavedThemePreference, saveThemePreference } from './utils/nativeBridge';
+import { getSavedThemePreference, saveThemePreference, shouldHidePwaInstallUi } from './utils/nativeBridge';
+import { isNativeCapacitorApp } from './utils/mobileConfig';
 import { PWAInstallButton, OfflineIndicator } from './components/PWAInstallButton';
 import { MobileAppsModal } from './components/MobileAppsModal';
 import { DashboardView } from './components/DashboardView';
@@ -186,6 +187,7 @@ export default function App() {
 
   const switchSession = useCallback((token: string, nextUser: UserAccount | null) => {
     setAuthToken(token);
+    void persistAuthToken(token);
     setCourses([]);
     setLectures([]);
     setConflicts([]);
@@ -207,14 +209,15 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const status = await apiFetch<{
+        type AuthStatusResponse = {
           user: UserAccount | null;
           hasProductionRepresentative: boolean;
           requiresSetupPasscode: boolean;
           demoEnabled?: boolean;
           demoAccounts: UserAccount[];
-        }>('/api/auth/status');
-
+        };
+        const { status, offline } = await restoreAndValidateSession(() => apiFetch<AuthStatusResponse>('/api/auth/status'));
+        if (offline || !status) return;
         const availableDemos = status.demoAccounts || [];
         setDemoAccounts(availableDemos);
         setHasProdRep(status.hasProductionRepresentative);
@@ -351,8 +354,10 @@ export default function App() {
       await apiFetch('/api/auth/logout', { method: 'POST' });
     } catch {
       // ignore
-    }
+    } finally {
+      await persistAuthToken('');
     switchSession('', null);
+    }
   };
 
   const handleLogoutAllSessions = async () => {
@@ -361,9 +366,11 @@ export default function App() {
       notify('تم إنهاء جميع الجلسات النشطة لحسابك على كافة الأجهزة');
     } catch {
       // ignore
-    }
+    } finally {
+      await persistAuthToken('');
     setShowProfileModal(false);
     switchSession('', null);
+    }
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -420,6 +427,7 @@ export default function App() {
   // ==========================================
   // LOGIN & DEMO / FIRST-RUN SETUP SCREEN
   // ==========================================
+    const hidePwaInstallUi = shouldHidePwaInstallUi(isNativeCapacitorApp());
   if (!user) {
     return (
       <div className="min-h-screen flex flex-col justify-between bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
@@ -452,7 +460,7 @@ export default function App() {
               <span className="sm:hidden">تطبيق الهاتف</span>
             </button>
             <div className="hidden sm:block">
-              <PWAInstallButton />
+              {!hidePwaInstallUi && <PWAInstallButton />}
             </div>
             <button
               type="button"
@@ -472,7 +480,7 @@ export default function App() {
               منصة إدارة الدفعات الجامعية المركزية عبر الإنترنت (HTTPS Multi-User Platform)
             </p>
             <h1 className="text-3xl font-bold text-slate-900 dark:text-white leading-tight">
-              إدارة منظمة للدفعة الجامعية من أي مكان، دون أن يتحمل المندوب عبء كل شيء بمفرده.
+              إدارة منظمة للدفعة الجامعية من أي مكان.
             </h1>
             <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
               تتيح منصة <strong>DBL Campus</strong> لمندوب الدفعة ونائبه والمنسقين والطلاب الوصول المركزي الآمن عبر الإنترنت (HTTPS) من الهواتف والحواسيب إلى الجدول الدراسي، التكاليف، الطلبات الجماعية وكشوف التأييد الرسمية (A4)، ومكتبة المحاضرات وفق صلاحيات دقيقة.
@@ -925,7 +933,7 @@ export default function App() {
               <span>APK / IPA</span>
             </button>
             <div className="hidden md:block">
-              <PWAInstallButton />
+              {!hidePwaInstallUi && <PWAInstallButton />}
             </div>
 
             {/* Notification Center Button */}
@@ -1212,7 +1220,7 @@ export default function App() {
                 <Smartphone className="w-4 h-4 shrink-0" />
                 <span>تطبيق الهاتف (APK / IPA)</span>
               </button>
-              <PWAInstallButton />
+              {!hidePwaInstallUi && <PWAInstallButton />}
               <button
                 type="button"
                 onClick={handleLogout}
