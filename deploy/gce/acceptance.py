@@ -8,35 +8,47 @@ import os
 from pathlib import Path
 import secrets
 import statistics
+import subprocess
 import time
-import urllib.request
 from urllib.parse import urlsplit
 
 
 ATTACHMENT = b"DBL Campus infrastructure acceptance fixture\n"
 
 
-class SameOriginOpener(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        raise ValueError("Unexpected redirect on the configured origin")
-
-
 class Campus:
     def __init__(self, origin):
         self.origin = origin
-        self.opener = urllib.request.build_opener(SameOriginOpener())
 
     def call(self, route, payload=None, token=None, raw=False):
         headers = {"Accept": "application/json"}
         if token:
             headers["Authorization"] = "Bearer " + token
-        data = None
+        config = []
         if payload is not None:
-            data = json.dumps(payload).encode()
             headers["Content-Type"] = "application/json"
-        request = urllib.request.Request(self.origin + route, data=data, headers=headers)
-        with self.opener.open(request, timeout=10) as response:
-            return response.read() if raw else json.load(response)
+            config.append("data-binary = " + json.dumps(json.dumps(payload)))
+        config.extend("header = " + json.dumps(f"{key}: {value}") for key, value in headers.items())
+        # Use the deployment's HTTP client. Keep credentials and request bodies off argv.
+        # curl does not follow redirects unless asked to do so.
+        result = subprocess.run(
+            ["curl", "-q", "-sS", "--max-time", "10", "--proto", "=http,https",
+             "--write-out", "\n%{http_code}\t%header{cf-ray}\t%header{cf-mitigated}",
+             "--config", "-", "--", self.origin + route],
+            input=("\n".join(config) + "\n").encode(), capture_output=True,
+        )
+        if result.returncode:
+            raise RuntimeError(f"curl failed on {route} with exit code {result.returncode}")
+        body, _, response = result.stdout.rpartition(b"\n")
+        status, ray, mitigated = response.decode().split("\t")
+        if not status.startswith("2"):
+            details = f"HTTP {status} on {route}"
+            if ray:
+                details += f" (Cloudflare Ray {ray})"
+            if mitigated == "challenge":
+                details += ": Cloudflare challenge"
+            raise RuntimeError(details)
+        return body if raw else json.loads(body)
 
     def preflight(self):
         health = self.call("/api/health")

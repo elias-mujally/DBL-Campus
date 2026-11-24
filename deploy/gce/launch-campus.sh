@@ -4,12 +4,12 @@ set +x
 set -euo pipefail
 umask 077
 
-[[ -t 0 && ( $# == 0 || ( $# == 1 && $1 == --resume ) ) ]] || {
-  echo 'Run interactively in Cloud Shell: launch-campus.sh [--resume]' >&2
+[[ -t 0 && ( $# == 0 || ( $# == 1 && ( $1 == --resume || $1 == --resume-acceptance ) ) ) ]] || {
+  echo 'Run interactively in Cloud Shell: launch-campus.sh [--resume|--resume-acceptance]' >&2
   exit 2
 }
 resume=false
-[[ ${1:-} != --resume ]] || resume=true
+[[ $# == 0 ]] || resume=true
 cd "$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
 [[ -z "$(git status --porcelain --untracked-files=no)" ]] || {
   echo 'Use a clean, reviewed Git checkout.' >&2
@@ -134,29 +134,34 @@ if [[ "$profile" != "$pilot" ]]; then
   deploy_profile "$pilot"
 fi
 ssh_vm 'bash -s' <deploy/gce/wait-origin.sh
-cf_authenticate
-
-tunnel_container="$(ssh_vm "sudo docker container ls -a --filter name='^/dbl-campus-tunnel$' --format '{{.Names}}' ")"
-if [[ -z "$tunnel_container" ]]; then
-  cf_prepare
-  remote="$(ssh_vm 'mktemp -d /tmp/dbl-campus-launch.XXXXXXXX')"
-  [[ "$remote" =~ ^/tmp/dbl-campus-launch\.[A-Za-z0-9]+$ ]]
-  copy_vm "$work/tunnel.token"
-  rm "$work/tunnel.token"
-  ssh_vm "sudo install -o 65532 -g 65532 -m 0400 '$remote/tunnel.token' /etc/dbl-campus/tunnel.token && \
-    rm '$remote/tunnel.token' && rmdir '$remote' && \
-    sudo docker run -d --name dbl-campus-tunnel --restart unless-stopped --network host \
-      --read-only --user 65532:65532 --cap-drop ALL --security-opt no-new-privileges \
-      --log-opt max-size=5m --log-opt max-file=2 \
-      --mount type=bind,src=/etc/dbl-campus/tunnel.token,dst=/run/tunnel.token,readonly \
-      dbl-campus-cloudflared:$release tunnel --no-autoupdate --edge-ip-version 6 \
-      --protocol http2 run --token-file /run/tunnel.token >/dev/null"
+if [[ ${1:-} == --resume-acceptance ]]; then
+  ssh_vm "test \"\$(sudo docker inspect --format '{{.Config.Image}} {{.State.Running}}' dbl-campus-tunnel)\" = 'dbl-campus-cloudflared:$release true'"
+  echo 'Reusing the running Cloudflare connector and current DNS route.'
 else
-  [[ "$tunnel_container" == dbl-campus-tunnel && -n "${tunnel_id:-}" ]]
-  ssh_vm "test \"\$(sudo docker inspect --format '{{.Config.Image}}' dbl-campus-tunnel)\" = 'dbl-campus-cloudflared:$release' && \
-    if [ \"\$(sudo docker inspect --format '{{.State.Running}}' dbl-campus-tunnel)\" != true ]; then sudo docker start dbl-campus-tunnel >/dev/null; fi"
+  cf_authenticate
+  
+  tunnel_container="$(ssh_vm "sudo docker container ls -a --filter name='^/dbl-campus-tunnel$' --format '{{.Names}}' ")"
+  if [[ -z "$tunnel_container" ]]; then
+    cf_prepare
+    remote="$(ssh_vm 'mktemp -d /tmp/dbl-campus-launch.XXXXXXXX')"
+    [[ "$remote" =~ ^/tmp/dbl-campus-launch\.[A-Za-z0-9]+$ ]]
+    copy_vm "$work/tunnel.token"
+    rm "$work/tunnel.token"
+    ssh_vm "sudo install -o 65532 -g 65532 -m 0400 '$remote/tunnel.token' /etc/dbl-campus/tunnel.token && \
+      rm '$remote/tunnel.token' && rmdir '$remote' && \
+      sudo docker run -d --name dbl-campus-tunnel --restart unless-stopped --network host \
+        --read-only --user 65532:65532 --cap-drop ALL --security-opt no-new-privileges \
+        --log-opt max-size=5m --log-opt max-file=2 \
+        --mount type=bind,src=/etc/dbl-campus/tunnel.token,dst=/run/tunnel.token,readonly \
+        dbl-campus-cloudflared:$release tunnel --no-autoupdate --edge-ip-version 6 \
+        --protocol http2 run --token-file /run/tunnel.token >/dev/null"
+  else
+    [[ "$tunnel_container" == dbl-campus-tunnel && -n "${tunnel_id:-}" ]]
+    ssh_vm "test \"\$(sudo docker inspect --format '{{.Config.Image}}' dbl-campus-tunnel)\" = 'dbl-campus-cloudflared:$release' && \
+      if [ \"\$(sudo docker inspect --format '{{.State.Running}}' dbl-campus-tunnel)\" != true ]; then sudo docker start dbl-campus-tunnel >/dev/null; fi"
+  fi
+  cf_publish
 fi
-cf_publish
 
 wait_health
 ssh_vm "curl -6fsS --max-time 15 '$origin/api/health' >/dev/null"
