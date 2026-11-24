@@ -1,6 +1,7 @@
 import UIKit
 import WebKit
 import Capacitor
+import Security
 
 private final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
     weak var delegate: WKScriptMessageHandler?
@@ -13,10 +14,28 @@ private final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
         delegate?.userContentController(userContentController, didReceive: message)
     }
 }
+private final class WeakScriptMessageHandlerWithReply: NSObject, WKScriptMessageHandlerWithReply {
+    weak var delegate: WKScriptMessageHandlerWithReply?
 
-final class DBLBridgeViewController: CAPBridgeViewController, WKScriptMessageHandler {
+    init(delegate: WKScriptMessageHandlerWithReply) {
+        self.delegate = delegate
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping (Any?, String?) -> Void) {
+        guard let delegate = delegate else {
+            replyHandler(nil, "Bridge unavailable")
+            return
+        }
+        delegate.userContentController(userContentController, didReceive: message, replyHandler: replyHandler)
+    }
+}
+
+final class DBLBridgeViewController: CAPBridgeViewController, WKScriptMessageHandler, WKScriptMessageHandlerWithReply {
     private static let maxExportBytes = 16 * 1024 * 1024
     private static let messageNames = ["dblPrint", "dblDownload", "dblSaveFile"]
+    private static let secureStorageMessageName = "dblSecureStorage"
+    private static let keychainService = "edu.dbl.campus.session"
+    private static let keychainAccount = "auth_token"
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -26,6 +45,9 @@ final class DBLBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
                 userContentController.removeScriptMessageHandler(forName: name)
                 userContentController.add(proxy, name: name)
             }
+            let replyProxy = WeakScriptMessageHandlerWithReply(delegate: self)
+            userContentController.removeScriptMessageHandler(forName: Self.secureStorageMessageName, contentWorld: .page)
+            userContentController.addScriptMessageHandler(replyProxy, contentWorld: .page, name: Self.secureStorageMessageName)
         }
     }
 
@@ -34,9 +56,79 @@ final class DBLBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
             for name in Self.messageNames {
                 userContentController.removeScriptMessageHandler(forName: name)
             }
+            userContentController.removeScriptMessageHandler(forName: Self.secureStorageMessageName, contentWorld: .page)
+        }
+    }
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping (Any?, String?) -> Void) {
+        guard message.name == Self.secureStorageMessageName else {
+            replyHandler(nil, "Unsupported message")
+            return
+        }
+        guard let body = message.body as? [String: Any],
+              let action = (body["action"] as? String)?.lowercased() else {
+            replyHandler(nil, "Invalid secure storage payload")
+            return
+        }
+        switch action {
+        case "get":
+            replyHandler(readKeychainSessionToken(), nil)
+        case "set":
+            let token = body["token"] as? String ?? body["value"] as? String ?? ""
+            if token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                replyHandler(clearKeychainSessionToken(), nil)
+            } else {
+                replyHandler(saveKeychainSessionToken(token), nil)
+            }
+        case "clear":
+            replyHandler(clearKeychainSessionToken(), nil)
+        default:
+            replyHandler(nil, "Unsupported secure storage action")
         }
     }
 
+    private func saveKeychainSessionToken(_ token: String) -> Bool {
+        guard let data = token.data(using: .utf8) else { return false }
+        let baseQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: Self.keychainService,
+            kSecAttrAccount as String: Self.keychainAccount
+        ]
+        SecItemDelete(baseQuery as CFDictionary)
+        var addQuery = baseQuery
+        addQuery[kSecValueData as String] = data
+        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        return status == errSecSuccess
+    }
+
+    private func readKeychainSessionToken() -> String {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: Self.keychainService,
+            kSecAttrAccount as String: Self.keychainAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess,
+              let data = item as? Data,
+              let token = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        return token
+    }
+
+    private func clearKeychainSessionToken() -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: Self.keychainService,
+            kSecAttrAccount as String: Self.keychainAccount
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
+    }
+    
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any] else { return }
         switch message.name {
