@@ -495,7 +495,8 @@ export default function App() {
                   تصويت واحد لكل طالب، سحب التأييد قبل الإغلاق، منع تغيير النص جوهرياً دون إعادة تأكيد، وتصدير كشوف A4 تميز بين التأييد الإلكتروني والتوقيع اليدوي.
                 </span>
               </div>
-              <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+              {!hidePwaInstallUi && (
+        <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
                 <strong className="text-slate-900 dark:text-white block mb-1">
                   2. وصول سحابي آمن وتثبيت كتطبيق PWA
                 </strong>
@@ -503,6 +504,7 @@ export default function App() {
                   تعمل المنصة عبر HTTPS مع حماية الجلسات وفحص الملفات المرفوعة، وتدعم التثبيت المباشر على هواتف Android و iOS والوصول من أي شبكة.
                 </span>
               </div>
+            )}
             </div>
           </div>
 
@@ -699,7 +701,9 @@ export default function App() {
 
         <footer className="px-6 py-4 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 flex flex-wrap items-center justify-between gap-2">
           <span>DBL Campus — Student Cohort Management Platform</span>
-          <span>جاهز للاستضافة المركزية عبر الإنترنت (HTTPS) وتثبيت الهواتف (PWA / APK / IPA)</span>
+          {!hidePwaInstallUi && (
+         <span>جاهز للاستضافة المركزية عبر الإنترنت (HTTPS) وتثبيت الهواتف (PWA / APK / IPA)</span>
+      )}
         </footer>
 
         {showMobileAppsModal && (
