@@ -1,3 +1,5 @@
+declare const __DBL_NATIVE_SERVER_ORIGIN__: string;
+const nativeOrigin = typeof __DBL_NATIVE_SERVER_ORIGIN__ === 'undefined' ? '' : __DBL_NATIVE_SERVER_ORIGIN__;
 const SERVER_URL_STORAGE_KEY = 'dbl_campus_server_url';
 
 /**
@@ -71,7 +73,10 @@ export function isNativeCapacitorApp(): boolean {
   return window.location.protocol === 'capacitor:' || window.location.protocol === 'ionic:';
 }
 
+export function getBundledServerOrigin(): string { return nativeOrigin; }
+
 export function getSavedServerBaseUrl(): string {
+  if (nativeOrigin) return nativeOrigin;
   if (typeof window === 'undefined') return '';
   try {
     const stored = window.localStorage.getItem(SERVER_URL_STORAGE_KEY) || '';
@@ -87,6 +92,7 @@ export function saveServerBaseUrl(rawInput: string): {
   normalized: string;
   errorAr?: string;
 } {
+  if (nativeOrigin) return { valid: false, normalized: nativeOrigin, errorAr: 'عنوان الإنتاج محدد في إصدار التطبيق.' };
   const check = validateServerBaseUrl(rawInput);
   if (!check.valid) return check;
   if (typeof window !== 'undefined') {

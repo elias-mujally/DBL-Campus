@@ -35,10 +35,12 @@ COPY --from=builder /app/src/server ./src/server
 COPY --from=builder /app/src/utils ./src/utils
 COPY --from=builder /app/src/types.ts ./src/types.ts
 
-RUN mkdir -p /data/uploads /data/releases /data/backups \
-  && chown -R node:node /app /data
+RUN apt-get update && apt-get install -y --no-install-recommends gosu \
+  && rm -rf /var/lib/apt/lists/* \
+  && install -d -m 0700 -o node -g node /data /data/uploads /data/releases /data/backups
 
-USER node
+COPY --chmod=0555 scripts/docker-entrypoint.sh /usr/local/bin/campus-entrypoint
+ENTRYPOINT ["/usr/local/bin/campus-entrypoint"]
 VOLUME ["/data"]
 EXPOSE 3000
 

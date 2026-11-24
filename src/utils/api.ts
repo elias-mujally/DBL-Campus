@@ -1,4 +1,4 @@
-import { getSavedServerBaseUrl, resolveApiUrl } from './mobileConfig';
+import { getSavedServerBaseUrl, isNativeCapacitorApp, resolveApiUrl } from './mobileConfig';
 
 let authTokenMemory = '';
 
@@ -11,7 +11,9 @@ export function getAuthToken(): string {
 }
 
 export function buildApiUrl(path: string): string {
-  return resolveApiUrl(path, getSavedServerBaseUrl());
+  const origin = getSavedServerBaseUrl();
+  if (isNativeCapacitorApp() && !origin) throw new Error('لم يُضبط عنوان خادم HTTPS لهذا الإصدار.');
+  return resolveApiUrl(path, origin);
 }
 
 export async function apiFetch<T>(
