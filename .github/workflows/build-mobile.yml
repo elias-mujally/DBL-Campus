@@ -12,14 +12,29 @@ on:
       - 'scripts/check-native-package.py'
       - 'capacitor.config.ts'
       - 'vite.config.ts'
+      - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/build-mobile.yml'
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
+      target_env:
+        description: Target server environment (production uses DBL_PRODUCTION_URL)
+        type: choice
+        default: production
+        options:
+          - production
+          - test
       release_tag:
-        description: Existing vMAJOR.MINOR.PATCH tag on main. Leave blank for test artifacts only.
+        description: Optional vMAJOR.MINOR.PATCH tag on main for signed release staging. Leave blank for build artifacts only.
         type: string
         required: false
+      publish_release:
+        description: Publish GitHub Release immediately instead of creating a draft (used with release tags).
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -30,6 +45,10 @@ jobs:
     outputs:
       origin: ${{ steps.config.outputs.origin }}
       mode: ${{ steps.config.outputs.mode }}
+      release_tag: ${{ steps.config.outputs.release_tag }}
+      version_name: ${{ steps.config.outputs.version_name }}
+      version_code: ${{ steps.config.outputs.version_code }}
+      publish_release: ${{ steps.config.outputs.publish_release }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -40,29 +59,71 @@ jobs:
           node-version: '22'
       - id: config
         env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+          TARGET_ENV: ${{ inputs.target_env }}
+          PUBLISH_RELEASE: ${{ inputs.publish_release }}
           PRODUCTION_ORIGIN: ${{ vars.DBL_PRODUCTION_URL }}
         run: |
-          mode=native-test
-          origin=https://campus.example.net
-          if [[ -n "$RELEASE_TAG" ]]; then
-            [[ "$GITHUB_REF" == refs/heads/main && "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-            [[ "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" == "$GITHUB_SHA" ]]
+          set -euo pipefail
+          release_tag=""
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            release_tag="$GITHUB_REF_NAME"
+          elif [[ -n "${RELEASE_TAG_INPUT:-}" ]]; then
+            release_tag="$RELEASE_TAG_INPUT"
+          fi
+
+          if [[ -n "$release_tag" ]]; then
+            [[ "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+              [[ "$GITHUB_REF" == "refs/heads/main" ]]
+              [[ "$(git rev-parse "refs/tags/${release_tag}^{commit}")" == "$GITHUB_SHA" ]]
+            fi
+            version_name="${release_tag#v}"
+          else
+            version_name=$(node -p 'JSON.parse(require("fs").readFileSync("package.json","utf8")).version')
+          fi
+
+          IFS='.' read -r maj min pat <<< "$version_name"
+          version_code=$((10#$maj * 10000 + 10#$min * 100 + 10#$pat))
+
+          mode="native-test"
+          origin="https://campus.example.net"
+          if [[ -n "$release_tag" || ( "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "${TARGET_ENV:-production}" == "production" ) ]]; then
             test -n "$PRODUCTION_ORIGIN"
-            mode=native
+            mode="native"
             origin=$(node --experimental-strip-types --input-type=module -e 'import {validateProductionOrigin} from "./src/utils/productionOrigin.ts"; console.log(validateProductionOrigin(process.env.PRODUCTION_ORIGIN))')
             curl --proto '=https' --max-time 20 --silent --show-error --fail "$origin/api/health" |
               jq --exit-status '.status=="ok" and .storageWritable==true and .demoEnabled==false' >/dev/null
           fi
-          printf 'origin=%s\nmode=%s\n' "$origin" "$mode" >> "$GITHUB_OUTPUT"
+
+          publish_flag="false"
+          if [[ "${PUBLISH_RELEASE:-false}" == "true" ]]; then
+            publish_flag="true"
+          fi
+
+          {
+            printf 'origin=%s\n' "$origin"
+            printf 'mode=%s\n' "$mode"
+            printf 'release_tag=%s\n' "$release_tag"
+            printf 'version_name=%s\n' "$version_name"
+            printf 'version_code=%s\n' "$version_code"
+            printf 'publish_release=%s\n' "$publish_flag"
+          } >> "$GITHUB_OUTPUT"
 
   android:
     needs: mobile-config
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    outputs:
+      sha256: ${{ steps.build_apk.outputs.sha256 }}
+      apk_name: ${{ steps.build_apk.outputs.apk_name }}
+      signed: ${{ steps.build_apk.outputs.signed }}
     env:
       DBL_NATIVE_SERVER_URL: ${{ needs.mobile-config.outputs.origin }}
       BUILD_MODE: ${{ needs.mobile-config.outputs.mode }}
+      RELEASE_TAG: ${{ needs.mobile-config.outputs.release_tag }}
+      VERSION_NAME: ${{ needs.mobile-config.outputs.version_name }}
+      VERSION_CODE: ${{ needs.mobile-config.outputs.version_code }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -79,37 +140,75 @@ jobs:
       - run: |
           npm run build -- --mode "$BUILD_MODE"
           npx --no-install cap sync android
-      - name: Assemble and verify APK signature
+      - name: Assemble, verify, and extract SHA-256 for APK
+        id: build_apk
         env:
-          ANDROID_KEYSTORE_BASE64: ${{ inputs.release_tag != '' && secrets.ANDROID_KEYSTORE_BASE64 || '' }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ inputs.release_tag != '' && secrets.ANDROID_KEYSTORE_PASSWORD || '' }}
-          ANDROID_KEY_ALIAS: ${{ inputs.release_tag != '' && secrets.ANDROID_KEY_ALIAS || '' }}
-          ANDROID_KEY_PASSWORD: ${{ inputs.release_tag != '' && secrets.ANDROID_KEY_PASSWORD || '' }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          set -euo pipefail
           mkdir -p artifacts
-          if [[ "$BUILD_MODE" == native ]]; then
-            test -n "$ANDROID_KEYSTORE_BASE64"
-            test -n "$ANDROID_KEYSTORE_PASSWORD"
-            test -n "$ANDROID_KEY_ALIAS"
-            test -n "$ANDROID_KEY_PASSWORD"
+          has_signing="false"
+          if [[ -n "${ANDROID_KEYSTORE_BASE64:-}" && -n "${ANDROID_KEYSTORE_PASSWORD:-}" && -n "${ANDROID_KEY_ALIAS:-}" && -n "${ANDROID_KEY_PASSWORD:-}" ]]; then
+            has_signing="true"
+          fi
+
+          signed="false"
+          if [[ "$BUILD_MODE" == "native" && "$has_signing" == "true" ]]; then
             umask 077
             keystore="$RUNNER_TEMP/campus.keystore"
             trap 'rm -f "$keystore"' EXIT
             printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
             (cd android && bash gradlew assembleRelease \
+              -PdblVersionName="$VERSION_NAME" \
+              -PdblVersionCode="$VERSION_CODE" \
               -Pandroid.injected.signing.store.file="$keystore" \
               -Pandroid.injected.signing.store.password="$ANDROID_KEYSTORE_PASSWORD" \
               -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
               -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD")
-            cp android/app/build/outputs/apk/release/app-release.apk artifacts/DBL-Campus-Android.apk
+            apk_name="DBL-Campus-Android.apk"
+            cp android/app/build/outputs/apk/release/app-release.apk "artifacts/$apk_name"
+            signed="true"
+          elif [[ -n "$RELEASE_TAG" ]]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, and ANDROID_KEY_PASSWORD secrets are required for a signed release tag ($RELEASE_TAG)."
+            exit 1
           else
-            (cd android && bash gradlew assembleDebug)
-            cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/DBL-Campus-Android-test.apk
+            (cd android && bash gradlew assembleDebug \
+              -PdblVersionName="$VERSION_NAME" \
+              -PdblVersionCode="$VERSION_CODE")
+            if [[ "$BUILD_MODE" == "native" ]]; then
+              apk_name="DBL-Campus-Android-debug.apk"
+            else
+              apk_name="DBL-Campus-Android-test.apk"
+            fi
+            cp android/app/build/outputs/apk/debug/app-debug.apk "artifacts/$apk_name"
           fi
+
           apksigner=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
-          "$apksigner" verify --verbose --print-certs artifacts/*.apk
-          python3 scripts/check-native-package.py artifacts/*.apk "$DBL_NATIVE_SERVER_URL"
-          (cd artifacts && sha256sum *.apk > SHA256SUMS.txt)
+          "$apksigner" verify --verbose --print-certs "artifacts/$apk_name"
+          python3 scripts/check-native-package.py "artifacts/$apk_name" "$DBL_NATIVE_SERVER_URL"
+
+          apk_sha256=$(sha256sum "artifacts/$apk_name" | awk '{print tolower($1)}')
+          [[ "$apk_sha256" =~ ^[a-f0-9]{64}$ ]]
+          (cd artifacts && sha256sum "$apk_name" > SHA256SUMS.txt)
+          printf 'DBL_ANDROID_RELEASE_SHA256=%s\n' "$apk_sha256" > artifacts/DBL_ANDROID_RELEASE_SHA256.env
+
+          {
+            printf 'sha256=%s\n' "$apk_sha256"
+            printf 'apk_name=%s\n' "$apk_name"
+            printf 'signed=%s\n' "$signed"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Android Build Summary"
+            echo "- **APK:** \`$apk_name\`"
+            echo "- **Version:** \`$VERSION_NAME\` (\`$VERSION_CODE\`)"
+            echo "- **Server Origin:** \`$DBL_NATIVE_SERVER_URL\`"
+            echo "- **Release Signed:** \`$signed\`"
+            echo "- **\`DBL_ANDROID_RELEASE_SHA256\`:** \`$apk_sha256\`"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Grant emulator access to KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666"' | sudo tee /etc/udev/rules.d/99-campus-kvm.rules
@@ -117,10 +216,10 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           test -e /dev/kvm
       - name: Install and launch APK on Android emulator
-        run: bash scripts/test-android-apk.sh artifacts/*.apk
+        run: bash scripts/test-android-apk.sh "artifacts/${{ steps.build_apk.outputs.apk_name }}"
       - uses: actions/upload-artifact@v7
         with:
-          name: ${{ inputs.release_tag != '' && 'Android-signed-release' || 'Android-emulator-test' }}
+          name: ${{ steps.build_apk.outputs.signed == 'true' && 'Android-signed-release' || (needs.mobile-config.outputs.mode == 'native' && 'Android-production-debug' || 'Android-emulator-test') }}
           path: artifacts/
           if-no-files-found: error
 
@@ -128,9 +227,14 @@ jobs:
     needs: mobile-config
     runs-on: macos-15
     timeout-minutes: 35
+    outputs:
+      sha256: ${{ steps.package_ios.outputs.sha256 }}
+      ipa_name: ${{ steps.package_ios.outputs.ipa_name }}
     env:
       DBL_NATIVE_SERVER_URL: ${{ needs.mobile-config.outputs.origin }}
       BUILD_MODE: ${{ needs.mobile-config.outputs.mode }}
+      VERSION_NAME: ${{ needs.mobile-config.outputs.version_name }}
+      VERSION_CODE: ${{ needs.mobile-config.outputs.version_code }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -146,27 +250,53 @@ jobs:
       - name: Build, install and launch the iOS Simulator app
         run: |
           xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
-            -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/sim" CODE_SIGNING_ALLOWED=NO build
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/sim" \
+            MARKETING_VERSION="$VERSION_NAME" CURRENT_PROJECT_VERSION="$VERSION_CODE" \
+            CODE_SIGNING_ALLOWED=NO build
           bash scripts/test-ios-app.sh "$RUNNER_TEMP/sim/Build/Products/Release-iphonesimulator/App.app"
-      - name: Package unsigned device build for signing separately
+      - name: Package unsigned device build and extract SHA-256
+        id: package_ios
         run: |
+          set -euo pipefail
           xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
-            -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/device" CODE_SIGNING_ALLOWED=NO build
+            -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/device" \
+            MARKETING_VERSION="$VERSION_NAME" CURRENT_PROJECT_VERSION="$VERSION_CODE" \
+            CODE_SIGNING_ALLOWED=NO build
           mkdir -p artifacts "$RUNNER_TEMP/package/Payload"
           cp -R "$RUNNER_TEMP/device/Build/Products/Release-iphoneos/App.app" "$RUNNER_TEMP/package/Payload/"
-          ipa="$PWD/artifacts/DBL-Campus-iOS-unsigned.ipa"
+          ipa_name="DBL-Campus-iOS-unsigned.ipa"
+          ipa="$PWD/artifacts/$ipa_name"
           (cd "$RUNNER_TEMP/package" && zip -qr "$ipa" Payload)
           python3 scripts/check-native-package.py "$ipa" "$DBL_NATIVE_SERVER_URL"
+
+          ipa_sha256=$(shasum -a 256 "$ipa" | awk '{print tolower($1)}')
+          [[ "$ipa_sha256" =~ ^[a-f0-9]{64}$ ]]
+          (cd artifacts && shasum -a 256 "$ipa_name" > SHA256SUMS-iOS.txt)
+          printf 'DBL_IOS_RELEASE_SHA256=%s\n' "$ipa_sha256" > artifacts/DBL_IOS_RELEASE_SHA256.env
+
+          {
+            printf 'sha256=%s\n' "$ipa_sha256"
+            printf 'ipa_name=%s\n' "$ipa_name"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### iOS Build Summary"
+            echo "- **IPA (unsigned):** \`$ipa_name\`"
+            echo "- **Version:** \`$VERSION_NAME\` (\`$VERSION_CODE\`)"
+            echo "- **Server Origin:** \`$DBL_NATIVE_SERVER_URL\`"
+            echo "- **\`DBL_IOS_RELEASE_SHA256\` (unsigned artifact):** \`$ipa_sha256\`"
+            echo "- *Note: Recompute \`shasum -a 256\` after Apple signing before setting \`DBL_IOS_RELEASE_SHA256\` on production.*"
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         with:
           name: iOS-unsigned-for-signing
           path: artifacts/
           if-no-files-found: error
 
-  stage-android-release:
-    name: Stage signed Android release as a draft
-    needs: [android, ios]
-    if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+  stage-mobile-release:
+    name: Stage mobile release and checksums
+    needs: [mobile-config, android, ios]
+    if: needs.mobile-config.outputs.release_tag != '' && needs.android.outputs.signed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -175,13 +305,46 @@ jobs:
         with:
           name: Android-signed-release
           path: release-files
-      - name: Create draft for owner review
+      - uses: actions/download-artifact@v8
+        with:
+          name: iOS-unsigned-for-signing
+          path: release-files
+      - name: Verify checksums and create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_TAG: ${{ needs.mobile-config.outputs.release_tag }}
+          PUBLISH_RELEASE: ${{ needs.mobile-config.outputs.publish_release }}
+          ANDROID_SHA256: ${{ needs.android.outputs.sha256 }}
+          IOS_SHA256: ${{ needs.ios.outputs.sha256 }}
         run: |
-          (cd release-files && sha256sum --check SHA256SUMS.txt)
-          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
+          set -euo pipefail
+          (cd release-files && sha256sum --check SHA256SUMS.txt && sha256sum --check SHA256SUMS-iOS.txt)
+          {
+            printf 'DBL_ANDROID_RELEASE_SHA256=%s\n' "$ANDROID_SHA256"
+            printf 'DBL_IOS_RELEASE_SHA256=%s\n' "$IOS_SHA256"
+          } > release-files/release-checksums.env
+
+          draft_flag="--draft"
+          if [[ "$PUBLISH_RELEASE" == "true" ]]; then
+            draft_flag=""
+          fi
+
+          notes=$(cat <<EOF
+          Signed Android APK and unsigned iOS IPA build for DBL Campus $RELEASE_TAG.
+
+          ### Automated SHA-256 Checksums (\`server.ts\`)
+          \`\`\`env
+          DBL_ANDROID_RELEASE_SHA256=$ANDROID_SHA256
+          DBL_IOS_RELEASE_SHA256=$IOS_SHA256
+          \`\`\`
+          *(Note: Recompute \`DBL_IOS_RELEASE_SHA256\` after signing the iOS IPA with your Apple Developer certificate.)*
+          EOF
+          )
+
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag $draft_flag \
             --title "DBL Campus $RELEASE_TAG" \
-            --notes "Signed Android APK. iOS distribution is managed separately through Apple signing and TestFlight." \
-            release-files/DBL-Campus-Android.apk release-files/SHA256SUMS.txt
+            --notes "$notes" \
+            release-files/DBL-Campus-Android.apk \
+            release-files/SHA256SUMS.txt \
+            release-files/SHA256SUMS-iOS.txt \
+            release-files/release-checksums.env
