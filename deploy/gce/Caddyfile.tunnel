@@ -1,0 +1,22 @@
+{
+	auto_https off
+}
+
+:8080 {
+	request_body {
+		max_size 100MB
+	}
+	# Only the host-local tunnel connector can send requests to this listener.
+	@cloudflare header CF-Connecting-IP *
+	handle @cloudflare {
+		reverse_proxy app:3000 {
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+		}
+	}
+	handle {
+		reverse_proxy app:3000 {
+			header_up X-Forwarded-Proto https
+		}
+	}
+}

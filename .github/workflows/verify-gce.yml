@@ -1,0 +1,24 @@
+name: Verify Compute Engine deployment layout
+
+on:
+  pull_request:
+    paths:
+      - 'deploy/gce/**'
+      - '.github/workflows/verify-gce.yml'
+      - 'docker-compose.yml'
+      - 'Dockerfile'
+  push:
+    branches: [deploy/google-cloud-free-tier]
+
+permissions:
+  contents: read
+
+jobs:
+  gce-compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - run: bash deploy/gce/test-compose.sh

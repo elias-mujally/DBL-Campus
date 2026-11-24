@@ -1264,6 +1264,11 @@ app.post('/api/requests', requireAuth, (req, res) => {
       ? 'open_for_endorsement'
       : 'submitted';
 
+  const representative = db.prepare(`
+    SELECT id FROM users WHERE role='representative' AND is_active=1 AND is_demo=?
+    ORDER BY (id = ?) DESC, created_at ASC, id ASC LIMIT 1
+  `).get(Number(user.isDemo), user.id) as { id: string } | undefined;
+
   const tx = db.transaction(() => {
     db.prepare(
       `INSERT INTO requests (id, reference_number, request_type, is_collective, target_authority, subject, details, proposed_solution, attachment_name, status, created_by, assigned_to, version_hash, created_at, is_demo)
@@ -1280,7 +1285,7 @@ app.post('/api/requests', requireAuth, (req, res) => {
       attachmentName ? String(attachmentName).trim() : null,
       status,
       user.id,
-      'u-rep-demo',
+      representative?.id ?? null,
       versionHash,
       now,
       user.isDemo ? 1 : 0
