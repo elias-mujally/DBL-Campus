@@ -1,0 +1,58 @@
+name: Google Cloud read-only preflight
+
+on:
+  push:
+    branches: [cloud/gce-readiness]
+
+permissions:
+  id-token: write
+
+jobs:
+  inventory:
+    if: github.repository_id == '1468017451'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Validate configuration
+        env:
+          PROJECT_NUMBER: ${{ vars.DBL_GCP_PROJECT_NUMBER }}
+        run: |
+          if [[ ! "$PROJECT_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "::error::Set the repository variable DBL_GCP_PROJECT_NUMBER before rerunning."
+            exit 1
+          fi
+      - name: Authenticate to Google Cloud
+        id: google
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          project_id: dbl-campus
+          workload_identity_provider: projects/${{ vars.DBL_GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/campus-preflight/providers/github
+          create_credentials_file: false
+          export_environment_variables: false
+      - name: Check Compute Engine inventory
+        env:
+          CLOUDSDK_AUTH_ACCESS_TOKEN: ${{ steps.google.outputs.auth_token }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CLOUDSDK_AUTH_ACCESS_TOKEN" ]]; then
+            echo "::error::Google did not issue a federated token."
+            exit 1
+          fi
+          inventory_dir="$(mktemp -d)"
+          trap 'rm -rf "$inventory_dir"' EXIT
+          for resource in instances disks addresses routers; do
+            if ! gcloud compute "$resource" list --quiet --project=dbl-campus --format=json >"$inventory_dir/$resource.json" 2>"$inventory_dir/$resource.err"; then
+              echo "::error::Could not list $resource in the target project. Check API enablement and the IAM grant."
+              exit 1
+            fi
+          done
+          if jq -e 'length == 0' "$inventory_dir/instances.json" >/dev/null &&
+             jq -e 'length == 0' "$inventory_dir/disks.json" >/dev/null &&
+             jq -e 'length == 0' "$inventory_dir/addresses.json" >/dev/null &&
+             jq -e 'all(.[]; (.nats // []) | length == 0)' "$inventory_dir/routers.json" >/dev/null; then
+            echo "Compute inventory check passed for the target project."
+          else
+            echo "::warning::Review existing Compute Engine resources before deployment."
+            exit 1
+          fi
+          echo "Billing-account usage and the IPv6 connection require separate verification."
