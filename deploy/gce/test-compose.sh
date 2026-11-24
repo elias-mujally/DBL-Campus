@@ -27,6 +27,10 @@ docker build -t "$CAMPUS_IMAGE" .
 "${compose[@]}" up -d --wait --no-build
 fixture=(python3 deploy/gce/acceptance.py)
 target=http://127.0.0.1:8080
+redirect="$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' -H 'X-Forwarded-Proto: http' "$target/api/health")"
+[[ "$redirect" == '308 https://campus.example.net/api/health' ]]
+headers="$(curl -fsS -D - -o /dev/null "$target/api/health")"
+grep -Eiq '^Cache-Control: private, no-store[[:space:]]*$' <<<"$headers"
 "${fixture[@]}" seed "$target" "$work/state.json" --backup "$work/backup.json" --ci-loopback
 "${compose[@]}" restart app
 "${compose[@]}" up -d --wait --no-build
