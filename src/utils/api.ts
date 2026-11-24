@@ -1,4 +1,17 @@
 import { getSavedServerBaseUrl, isNativeCapacitorApp, resolveApiUrl } from './mobileConfig';
+import { clearNativeSessionToken, loadNativeSessionToken, saveNativeSessionToken } from './nativeBridge';
+
+export class ApiError extends Error {
+  status: number;
+  isNetworkError: boolean;
+
+  constructor(message: string, status: number, isNetworkError = false) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.isNetworkError = isNetworkError;
+  }
+}
 
 let authTokenMemory = '';
 
@@ -8,6 +21,46 @@ export function setAuthToken(token: string): void {
 
 export function getAuthToken(): string {
   return authTokenMemory;
+}
+
+export async function persistAuthToken(token: string): Promise<void> {
+  authTokenMemory = token;
+  if (!token) {
+    await clearNativeSessionToken();
+    return;
+  }
+  await saveNativeSessionToken(token);
+}
+
+export async function restorePersistedAuthToken(): Promise<string> {
+  const token = await loadNativeSessionToken();
+  if (token) {
+    authTokenMemory = token;
+  }
+  return token;
+}
+
+export async function restoreAndValidateSession<T extends { user: unknown | null }>(
+  fetchStatus: () => Promise<T>,
+): Promise<{ status: T | null; offline: boolean; hasStoredToken: boolean }> {
+  const token = await restorePersistedAuthToken();
+  try {
+    const status = await fetchStatus();
+    if (status.user === null) {
+      await persistAuthToken('');
+      return { status, offline: false, hasStoredToken: false };
+    }
+    return { status, offline: false, hasStoredToken: Boolean(token) };
+  } catch (err) {
+    if (err instanceof ApiError && err.isNetworkError) {
+      return { status: null, offline: true, hasStoredToken: Boolean(token) };
+    }
+    if (err instanceof ApiError && err.status === 401) {
+      await persistAuthToken('');
+      return { status: null, offline: false, hasStoredToken: false };
+    }
+    throw err;
+  }
 }
 
 export function buildApiUrl(path: string): string {
@@ -28,18 +81,24 @@ export async function apiFetch<T>(
   if (authTokenMemory) {
     headers.Authorization = `Bearer ${authTokenMemory}`;
   }
-
-  const res = await fetch(buildApiUrl(path), {
-    ...options,
-    headers,
-  });
+  let res: Response;
+  try {
+    res = await fetch(buildApiUrl(path), {
+      ...options,
+      headers,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Network error';
+    throw new ApiError(msg || 'Network error', 0, true);
+  }
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.error || `خطأ في الاتصال بالخادم (${res.status})`);
+    throw new ApiError(data.error || `Request failed (${res.status})`, res.status, false);
   }
   return data as T;
 }
+
 
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
