@@ -2,6 +2,7 @@
 import argparse
 import base64
 from concurrent.futures import ThreadPoolExecutor
+from collections import Counter
 import getpass
 import json
 import os
@@ -20,7 +21,7 @@ class Campus:
     def __init__(self, origin):
         self.origin = origin
 
-    def call(self, route, payload=None, token=None, raw=False):
+    def call(self, route, payload=None, token=None, raw=False, attempts=None):
         headers = {"Accept": "application/json"}
         if token:
             headers["Authorization"] = "Bearer " + token
@@ -31,20 +32,28 @@ class Campus:
         config.extend("header = " + json.dumps(f"{key}: {value}") for key, value in headers.items())
         # Use the deployment's HTTP client. Keep credentials and request bodies off argv.
         # curl does not follow redirects unless asked to do so.
-        command = ["curl", "-q", "-sS", "--connect-timeout", "5", "--max-time", "10",
+        command = ["curl", "-q", "-sS", "--connect-timeout", "10", "--max-time", "20",
                    "--proto", "=http,https", "--write-out",
-                   "\n%{http_code}\t%header{cf-ray}\t%header{cf-mitigated}",
+                   "\n%{http_code}\t%header{cf-ray}\t%header{cf-mitigated}"
+                   "\t%{time_namelookup}\t%{time_connect}\t%{time_appconnect}\t%{time_starttransfer}",
                    "--config", "-", "--", self.origin + route]
         config_bytes = ("\n".join(config) + "\n").encode()
         # A read can be retried safely after a transient transport failure.
         for _ in range(2 if payload is None else 1):
             result = subprocess.run(command, input=config_bytes, capture_output=True)
+            if attempts is not None:
+                attempts.append(result.returncode)
             if result.returncode not in (7, 28, 52, 56):
                 break
-        if result.returncode:
-            raise RuntimeError(f"curl failed on {route} with exit code {result.returncode}")
         body, _, response = result.stdout.rpartition(b"\n")
-        status, ray, mitigated = response.decode().split("\t")
+        fields = response.decode(errors="replace").split("\t")
+        if result.returncode:
+            details = f"curl failed on {route} with exit code {result.returncode}"
+            if len(fields) == 7:
+                dns, tcp, tls, first_byte = fields[3:]
+                details += f" (DNS={dns}s, TCP={tcp}s, TLS={tls}s, first byte={first_byte}s)"
+            raise RuntimeError(details)
+        status, ray, mitigated = fields[:3]
         if not status.startswith("2"):
             details = f"HTTP {status} on {route}"
             if ray:
@@ -136,14 +145,30 @@ def load(campus, state, workers):
     routes = ["/api/requests", "/api/courses", "/api/files"]
 
     def timed_read(index):
+        route = routes[index % len(routes)]
+        attempts = []
         started = time.monotonic()
-        campus.call(routes[index % len(routes)], token=token)
-        return (time.monotonic() - started) * 1000
+        try:
+            campus.call(route, token=token, attempts=attempts)
+        except (RuntimeError, ValueError) as error:
+            return None, len(attempts), route, str(error)
+        return (time.monotonic() - started) * 1000, len(attempts), route, None
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        samples = sorted(executor.map(timed_read, range(60)))
-    print(f"60 authenticated reads with {workers} workers. Errors: 0. "
-          f"p50: {statistics.median(samples):.0f} ms; p95: {samples[56]:.0f} ms")
+        results = list(executor.map(timed_read, range(60)))
+    samples = sorted(value for value, _, _, _ in results if value is not None)
+    retries = sum(count > 1 for _, count, _, _ in results)
+    failures = Counter(route for _, _, route, error in results if error is not None)
+    print(f"Load: {len(results)} authenticated reads with {workers} workers. "
+          f"Succeeded: {len(samples)}. Failed: {sum(failures.values())}. Retried: {retries}.")
+    if samples:
+        tail = samples[(95 * len(samples) + 99) // 100 - 1]
+        print(f"Successful reads: p50 {statistics.median(samples):.0f} ms; p95 {tail:.0f} ms.")
+    if failures:
+        for route, count in failures.items():
+            example = next(error for _, _, path, error in results if path == route and error is not None)
+            print(f"{route}: {count} failed. Example: {example}")
+        raise SystemExit("Load acceptance failed. The synthetic profile was left active.")
 
 
 def main():

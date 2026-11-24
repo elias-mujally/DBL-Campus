@@ -4,10 +4,12 @@ set +x
 set -euo pipefail
 umask 077
 
-[[ -t 0 && ( $# == 0 || ( $# == 1 && ( $1 == --resume || $1 == --resume-acceptance ) ) ) ]] || {
-  echo 'Run interactively in Cloud Shell: launch-campus.sh [--resume|--resume-acceptance]' >&2
+[[ -t 0 && $# -le 1 ]] || { echo 'Run interactively in Cloud Shell.' >&2; exit 2; }
+mode="${1:-}"
+case "$mode" in ''|--resume|--resume-acceptance|--resume-load) ;; *)
+  echo 'Usage: launch-campus.sh [--resume|--resume-acceptance|--resume-load]' >&2
   exit 2
-}
+esac
 resume=false
 [[ $# == 0 ]] || resume=true
 cd "$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
@@ -134,7 +136,7 @@ if [[ "$profile" != "$pilot" ]]; then
   deploy_profile "$pilot"
 fi
 ssh_vm 'bash -s' <deploy/gce/wait-origin.sh
-if [[ ${1:-} == --resume-acceptance ]]; then
+if [[ "$mode" == --resume-acceptance || "$mode" == --resume-load ]]; then
   ssh_vm "test \"\$(sudo docker inspect --format '{{.Config.Image}} {{.State.Running}}' dbl-campus-tunnel)\" = 'dbl-campus-cloudflared:$release true'"
   echo 'Reusing the running Cloudflare connector and current DNS route.'
 else
@@ -179,28 +181,36 @@ accept_with_setup() {
 
 if [[ -s "$qa_state/fixture.json" && -s "$qa_state/backup.json" ]]; then
   "${accept[@]}" verify "$origin" "$qa_state/fixture.json"
+elif [[ "$mode" == --resume-load ]]; then
+  echo 'The saved synthetic fixture and backup are both required to resume the load test.' >&2
+  exit 1
 else
   accept_with_setup "$pilot" seed
 fi
-before="$(ssh_vm 'cat /proc/sys/kernel/random/boot_id')"
-if ! ssh_vm 'sudo systemctl reboot'; then
-  echo 'SSH closed during the VM reboot request. Checking its boot ID.'
-fi
-after="$before"
-for attempt in {1..25}; do
-  after="$(ssh_vm 'cat /proc/sys/kernel/random/boot_id' 2>/dev/null)" || after="$before"
-  [[ -n "$after" && "$after" != "$before" ]] && break
-  sleep 4
-done
-[[ -n "$after" && "$after" != "$before" ]] || { echo 'The VM reboot was not observed.' >&2; exit 1; }
-wait_health
-"${accept[@]}" verify "$origin" "$qa_state/fixture.json"
-echo 'PASS: verified data after VM reboot.'
 
-deploy_profile "$pilot" --recreate-app
-wait_health
-"${accept[@]}" verify "$origin" "$qa_state/fixture.json"
-echo 'PASS: verified data after application redeployment.'
+if [[ "$mode" == --resume-load ]]; then
+  echo 'Saved synthetic records verified. Continuing at the load test.'
+else
+  before="$(ssh_vm 'cat /proc/sys/kernel/random/boot_id')"
+  if ! ssh_vm 'sudo systemctl reboot'; then
+    echo 'SSH closed during the VM reboot request. Checking its boot ID.'
+  fi
+  after="$before"
+  for attempt in {1..25}; do
+    after="$(ssh_vm 'cat /proc/sys/kernel/random/boot_id' 2>/dev/null)" || after="$before"
+    [[ -n "$after" && "$after" != "$before" ]] && break
+    sleep 4
+  done
+  [[ -n "$after" && "$after" != "$before" ]] || { echo 'The VM reboot was not observed.' >&2; exit 1; }
+  wait_health
+  "${accept[@]}" verify "$origin" "$qa_state/fixture.json"
+  echo 'PASS: verified data after VM reboot.'
+
+  deploy_profile "$pilot" --recreate-app
+  wait_health
+  "${accept[@]}" verify "$origin" "$qa_state/fixture.json"
+  echo 'PASS: verified data after application redeployment.'
+fi
 "${accept[@]}" load "$origin" "$qa_state/fixture.json" --workers 4 &
 load_pid=$!
 ssh_vm 'sudo env CAMPUS_DATA_PATH=/srv/dbl-campus-data bash /opt/dbl-campus/current/deploy/gce/host-metrics.sh'
