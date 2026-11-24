@@ -31,12 +31,16 @@ class Campus:
         config.extend("header = " + json.dumps(f"{key}: {value}") for key, value in headers.items())
         # Use the deployment's HTTP client. Keep credentials and request bodies off argv.
         # curl does not follow redirects unless asked to do so.
-        result = subprocess.run(
-            ["curl", "-q", "-sS", "--max-time", "10", "--proto", "=http,https",
-             "--write-out", "\n%{http_code}\t%header{cf-ray}\t%header{cf-mitigated}",
-             "--config", "-", "--", self.origin + route],
-            input=("\n".join(config) + "\n").encode(), capture_output=True,
-        )
+        command = ["curl", "-q", "-sS", "--connect-timeout", "5", "--max-time", "10",
+                   "--proto", "=http,https", "--write-out",
+                   "\n%{http_code}\t%header{cf-ray}\t%header{cf-mitigated}",
+                   "--config", "-", "--", self.origin + route]
+        config_bytes = ("\n".join(config) + "\n").encode()
+        # A read can be retried safely after a transient transport failure.
+        for _ in range(2 if payload is None else 1):
+            result = subprocess.run(command, input=config_bytes, capture_output=True)
+            if result.returncode not in (7, 28, 52, 56):
+                break
         if result.returncode:
             raise RuntimeError(f"curl failed on {route} with exit code {result.returncode}")
         body, _, response = result.stdout.rpartition(b"\n")
