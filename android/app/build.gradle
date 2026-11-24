@@ -1,5 +1,8 @@
 apply plugin: 'com.android.application'
 
+def dblVersionCode = project.hasProperty('dblVersionCode') ? project.property('dblVersionCode').toInteger() : 10100
+def dblVersionName = project.hasProperty('dblVersionName') ? project.property('dblVersionName').toString() : "1.1.0"
+
 android {
     namespace = "edu.dbl.campus"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +10,8 @@ android {
         applicationId "edu.dbl.campus"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode dblVersionCode
+        versionName dblVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

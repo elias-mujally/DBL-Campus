@@ -1,1 +1,151 @@
-if(!self.define){let e,s={};const n=(n,i)=>(n=new URL(n+".js",i).href,s[n]||new Promise(s=>{if("document"in self){const e=document.createElement("script");e.src=n,e.onload=s,document.head.appendChild(e)}else e=n,importScripts(n),s()}).then(()=>{let e=s[n];if(!e)throw new Error(`Module ${n} didn’t register its module`);return e}));self.define=(i,o)=>{const c=e||("document"in self?document.currentScript.src:"")||location.href;if(s[c])return;let d={};const r=e=>n(e,c),t={module:{uri:c},exports:d,require:r};s[c]=Promise.all(i.map(e=>t[e]||r(e))).then(e=>(o(...e),d))}}define(["./workbox-e5929aca"],function(e){"use strict";self.skipWaiting(),e.clientsClaim(),e.precacheAndRoute([{url:"pwa-maskable-512x512.png",revision:"9154d187b78ecd96acd0a118839cd324"},{url:"pwa-512x512.png",revision:"9154d187b78ecd96acd0a118839cd324"},{url:"pwa-192x192.png",revision:"7b35d19623b9f12d9b4b32758de4c9a3"},{url:"index.html",revision:"4f0b3ade02fdece1cddd8a14a39cc379"},{url:"icon.svg",revision:"06c2e0faae3c57cd8d57c866e61d163e"},{url:"apple-touch-icon.png",revision:"94275647e7dc43e1cbaa1b1808be758d"},{url:"assets/workbox-window.prod.es5-CzJxx9q2.js",revision:null},{url:"assets/index-CQoYR1Yz.js",revision:null},{url:"assets/index-5xPWFZX_.css",revision:null},{url:"apple-touch-icon.png",revision:"94275647e7dc43e1cbaa1b1808be758d"},{url:"icon.svg",revision:"06c2e0faae3c57cd8d57c866e61d163e"},{url:"pwa-192x192.png",revision:"7b35d19623b9f12d9b4b32758de4c9a3"},{url:"pwa-512x512.png",revision:"9154d187b78ecd96acd0a118839cd324"},{url:"pwa-maskable-512x512.png",revision:"9154d187b78ecd96acd0a118839cd324"},{url:"manifest.webmanifest",revision:"3324769ce723074a0e6cc6629d8d57b8"}],{}),e.cleanupOutdatedCaches(),e.registerRoute(new e.NavigationRoute(e.createHandlerBoundToURL("index.html"),{denylist:[/^\/api\//]})),e.registerRoute(({url:e})=>e.pathname.startsWith("/api/"),new e.NetworkOnly,"GET"),e.registerRoute(/^https:\/\/fonts\.googleapis\.com\/.*/i,new e.CacheFirst({cacheName:"google-fonts-stylesheets",plugins:[new e.ExpirationPlugin({maxEntries:10,maxAgeSeconds:31536e3}),new e.CacheableResponsePlugin({statuses:[0,200]})]}),"GET"),e.registerRoute(/^https:\/\/fonts\.gstatic\.com\/.*/i,new e.CacheFirst({cacheName:"google-fonts-webfonts",plugins:[new e.ExpirationPlugin({maxEntries:20,maxAgeSeconds:31536e3}),new e.CacheableResponsePlugin({statuses:[0,200]})]}),"GET")});
+/**
+ * Copyright 2018 Google Inc. All Rights Reserved.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// If the loader is already loaded, just stop.
+if (!self.define) {
+  let registry = {};
+
+  // Used for `eval` and `importScripts` where we can't get script URL by other means.
+  // In both cases, it's safe to use a global var because those functions are synchronous.
+  let nextDefineUri;
+
+  const singleRequire = (uri, parentUri) => {
+    uri = new URL(uri + ".js", parentUri).href;
+    return registry[uri] || (
+      
+        new Promise(resolve => {
+          if ("document" in self) {
+            const script = document.createElement("script");
+            script.src = uri;
+            script.onload = resolve;
+            document.head.appendChild(script);
+          } else {
+            nextDefineUri = uri;
+            importScripts(uri);
+            resolve();
+          }
+        })
+      
+      .then(() => {
+        let promise = registry[uri];
+        if (!promise) {
+          throw new Error(`Module ${uri} didn’t register its module`);
+        }
+        return promise;
+      })
+    );
+  };
+
+  self.define = (depsNames, factory) => {
+    const uri = nextDefineUri || ("document" in self ? document.currentScript.src : "") || location.href;
+    if (registry[uri]) {
+      // Module is already loading or loaded.
+      return;
+    }
+    let exports = {};
+    const require = depUri => singleRequire(depUri, uri);
+    const specialDeps = {
+      module: { uri },
+      exports,
+      require
+    };
+    registry[uri] = Promise.all(depsNames.map(
+      depName => specialDeps[depName] || require(depName)
+    )).then(deps => {
+      factory(...deps);
+      return exports;
+    });
+  };
+}
+define(['./workbox-43e44e5a'], (function (workbox) { 'use strict';
+
+  self.skipWaiting();
+  workbox.clientsClaim();
+  /**
+   * The precacheAndRoute() method efficiently caches and responds to
+   * requests for URLs in the manifest.
+   * See https://goo.gl/S9QRab
+   */
+  workbox.precacheAndRoute([{
+    "url": "pwa-maskable-512x512.png",
+    "revision": "9154d187b78ecd96acd0a118839cd324"
+  }, {
+    "url": "pwa-512x512.png",
+    "revision": "9154d187b78ecd96acd0a118839cd324"
+  }, {
+    "url": "pwa-192x192.png",
+    "revision": "7b35d19623b9f12d9b4b32758de4c9a3"
+  }, {
+    "url": "index.html",
+    "revision": "920a87476fbde386af4f14f55287c39a"
+  }, {
+    "url": "icon.svg",
+    "revision": "06c2e0faae3c57cd8d57c866e61d163e"
+  }, {
+    "url": "apple-touch-icon.png",
+    "revision": "94275647e7dc43e1cbaa1b1808be758d"
+  }, {
+    "url": "assets/workbox-window.prod.es5-Bd17z0YL.js",
+    "revision": null
+  }, {
+    "url": "assets/index-B_QV741G.css",
+    "revision": null
+  }, {
+    "url": "assets/index-B8eaPqra.js",
+    "revision": null
+  }, {
+    "url": "apple-touch-icon.png",
+    "revision": "94275647e7dc43e1cbaa1b1808be758d"
+  }, {
+    "url": "icon.svg",
+    "revision": "06c2e0faae3c57cd8d57c866e61d163e"
+  }, {
+    "url": "pwa-192x192.png",
+    "revision": "7b35d19623b9f12d9b4b32758de4c9a3"
+  }, {
+    "url": "pwa-512x512.png",
+    "revision": "9154d187b78ecd96acd0a118839cd324"
+  }, {
+    "url": "pwa-maskable-512x512.png",
+    "revision": "9154d187b78ecd96acd0a118839cd324"
+  }, {
+    "url": "manifest.webmanifest",
+    "revision": "3324769ce723074a0e6cc6629d8d57b8"
+  }], {});
+  workbox.cleanupOutdatedCaches();
+  workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("index.html"), {
+    denylist: [/^\/api\//]
+  }));
+  workbox.registerRoute(({
+    url
+  }) => url.pathname.startsWith("/api/"), new workbox.NetworkOnly(), 'GET');
+  workbox.registerRoute(/^https:\/\/fonts\.googleapis\.com\/.*/i, new workbox.CacheFirst({
+    "cacheName": "google-fonts-stylesheets",
+    plugins: [new workbox.ExpirationPlugin({
+      maxEntries: 10,
+      maxAgeSeconds: 31536000
+    }), new workbox.CacheableResponsePlugin({
+      statuses: [0, 200]
+    })]
+  }), 'GET');
+  workbox.registerRoute(/^https:\/\/fonts\.gstatic\.com\/.*/i, new workbox.CacheFirst({
+    "cacheName": "google-fonts-webfonts",
+    plugins: [new workbox.ExpirationPlugin({
+      maxEntries: 20,
+      maxAgeSeconds: 31536000
+    }), new workbox.CacheableResponsePlugin({
+      statuses: [0, 200]
+    })]
+  }), 'GET');
+
+}));

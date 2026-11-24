@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { FileText, Printer, Users, PenTool, X } from 'lucide-react';
 import type { CohortRequest } from '../types';
 import { REQUEST_STATUS_LABELS_AR } from '../utils/domainLogic';
+import { printCurrentDocument } from '../utils/nativeBridge';
 
 interface OfficialDocumentModalProps {
   request: CohortRequest;
@@ -116,7 +117,7 @@ export const OfficialDocumentModal: React.FC<OfficialDocumentModalProps> = ({
 
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={() => printCurrentDocument(`DBL_Campus_${request.referenceNumber}`)}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition-colors whitespace-nowrap"
           >
             <Printer className="w-4 h-4" />

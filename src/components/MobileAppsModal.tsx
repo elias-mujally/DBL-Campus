@@ -20,6 +20,7 @@ import {
   saveServerBaseUrl,
   validateServerBaseUrl,
 } from '../utils/mobileConfig';
+import { getAppVersion } from '../utils/nativeBridge';
 
 interface MobileReleaseInfo {
   platform: 'apk' | 'ipa';
@@ -422,16 +423,16 @@ export const MobileAppsModal: React.FC<MobileAppsModalProps> = ({
                   </code>
                   . عند رفع المشروع إلى GitHub وتشغيل سير العمل (أو إنشاء وسم إصدار مثل{' '}
                   <code dir="ltr" className="inline-block font-mono">
-                    v1.0.0
+                    v{getAppVersion()}
                   </code>
-                  )، يقوم GitHub تلقائياً ببناء وتصدير:
+                  )، يقوم GitHub تلقائياً ببناء وفحص وتصدير:
                 </p>
                 <div
                   dir="ltr"
                   className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-left font-mono text-[11px] text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/70 p-2.5 rounded-lg"
                 >
-                  <span>1. DBL-Campus-Android.apk (Ubuntu + Gradle)</span>
-                  <span>2. DBL-Campus-iOS.ipa (macOS + Xcode)</span>
+                  <span>1. DBL-Campus-Android.apk (Signed Release + Emulator Check)</span>
+                  <span>2. DBL-Campus-iOS-unsigned.ipa (Simulator Check + Signing Ready)</span>
                 </div>
                 <p className="text-[11px] text-slate-500">
                   التفاصيل الكاملة وخطوات التثبيت عبر AltStore / Sideloadly / Android موثقة في ملف{' '}
@@ -469,16 +470,33 @@ export const MobileAppsModal: React.FC<MobileAppsModalProps> = ({
             /* Server Connection Settings Tab (for native APK/IPA apps) */
             <form onSubmit={handleTestAndSaveServer} className="space-y-4 text-xs">
               <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-1.5">
-                <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-slate-100">
-                  <Server className="w-4 h-4 text-teal-600" />
-                  <span>ربط تطبيق الهاتف بخادم الدفعة عبر الإنترنت (HTTPS)</span>
+                <div className="flex items-center justify-between gap-2 font-bold text-slate-900 dark:text-slate-100">
+                  <div className="flex items-center gap-2">
+                    <Server className="w-4 h-4 text-teal-600" />
+                    <span>ربط تطبيق الهاتف بخادم الدفعة عبر الإنترنت (HTTPS)</span>
+                  </div>
+                  <span dir="ltr" className="font-mono text-[11px] text-slate-500">
+                    v{getAppVersion()}
+                  </span>
                 </div>
                 <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
-                  عند تشغيل التطبيق من ملف <strong>APK</strong> أو <strong>IPA</strong> على هاتفك، أدخل رابط الاستضافة الآمن لخادم الدفعة عبر الإنترنت (مثل{' '}
-                  <code className="inline-block font-mono" dir="ltr">
-                    https://campus.example.edu
-                  </code>
-                  ). اتركه فارغاً عند الاستخدام مباشرةً من المتصفح أو PWA.
+                  {bundledOrigin ? (
+                    <>
+                      هذا الإصدار من التطبيق مربوط تلقائياً بخادم الإنتاج الرسمي{' '}
+                      <code className="inline-block font-mono" dir="ltr">
+                        {bundledOrigin}
+                      </code>{' '}
+                      ويستخدم قاعدة البيانات المركزية نفسها عبر اتصال HTTPS مشفّر.
+                    </>
+                  ) : (
+                    <>
+                      عند تشغيل التطبيق من ملف <strong>APK</strong> أو <strong>IPA</strong> على هاتفك، أدخل رابط الاستضافة الآمن لخادم الدفعة عبر الإنترنت (مثل{' '}
+                      <code className="inline-block font-mono" dir="ltr">
+                        https://campus.dblab.site
+                      </code>
+                      ). اتركه فارغاً عند الاستخدام مباشرةً من المتصفح أو PWA.
+                    </>
+                  )}
                 </p>
               </div>
 
@@ -492,7 +510,7 @@ export const MobileAppsModal: React.FC<MobileAppsModalProps> = ({
                   value={serverUrlInput}
                   readOnly={Boolean(bundledOrigin)}
                   onChange={(e) => setServerUrlInput(e.target.value)}
-                  placeholder="https://campus.example.edu"
+                  placeholder="https://campus.dblab.site"
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 font-mono text-xs"
                 />
               </div>

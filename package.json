@@ -1,7 +1,7 @@
 {
-  "name": "react-example",
+  "name": "dbl-campus",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "node --import tsx server.ts",
@@ -12,6 +12,7 @@
     "cap:sync": "vite build && npx cap sync",
     "cap:android": "vite build && npx cap sync android",
     "cap:ios": "vite build && npx cap sync ios",
+    "cap:sync:prod": "vite build --mode native && npx cap sync",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
   },

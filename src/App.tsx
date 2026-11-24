@@ -38,6 +38,7 @@ import type {
 } from './types';
 import { ROLE_LABELS_AR, apiFetch, getAuthToken, setAuthToken } from './utils/api';
 import { hasPermission } from './utils/domainLogic';
+import { getSavedThemePreference, saveThemePreference } from './utils/nativeBridge';
 import { PWAInstallButton, OfflineIndicator } from './components/PWAInstallButton';
 import { MobileAppsModal } from './components/MobileAppsModal';
 import { DashboardView } from './components/DashboardView';
@@ -57,7 +58,7 @@ interface SearchResultItem {
 }
 
 export default function App() {
-  const [darkMode, setDarkMode] = useState<boolean>(false);
+  const [darkMode, setDarkMode] = useState<boolean>(() => getSavedThemePreference());
   const [user, setUser] = useState<UserAccount | null>(null);
   const [demoAccounts, setDemoAccounts] = useState<UserAccount[]>([]);
   const [hasProdRep, setHasProdRep] = useState<boolean>(false);
@@ -111,7 +112,31 @@ export default function App() {
     } else {
       document.documentElement.classList.remove('dark');
     }
+    saveThemePreference(darkMode);
   }, [darkMode]);
+
+  useEffect(() => {
+    const handleNativeBack = (event: Event) => {
+      if (showMobileAppsModal) {
+        event.preventDefault();
+        setShowMobileAppsModal(false);
+      } else if (showProfileModal) {
+        event.preventDefault();
+        setShowProfileModal(false);
+      } else if (showNotifPanel) {
+        event.preventDefault();
+        setShowNotifPanel(false);
+      } else if (mobileMenuOpen) {
+        event.preventDefault();
+        setMobileMenuOpen(false);
+      } else if (activeTab !== 'dashboard') {
+        event.preventDefault();
+        setActiveTab('dashboard');
+      }
+    };
+    window.addEventListener('dbl-native-back', handleNativeBack);
+    return () => window.removeEventListener('dbl-native-back', handleNativeBack);
+  }, [showMobileAppsModal, showProfileModal, showNotifPanel, mobileMenuOpen, activeTab]);
 
   const notify = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
@@ -410,20 +435,21 @@ export default function App() {
           </div>
         )}
 
-        <header className="flex items-center justify-between gap-8 px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
-          <div className="flex items-center gap-2.5 whitespace-nowrap shrink-0">
-            <GraduationCap className="w-6 h-6 text-teal-600" />
-            <span className="text-lg font-bold tracking-tight">DBL Campus</span>
+        <header className="safe-top flex items-center justify-between gap-2 sm:gap-6 px-3 sm:px-6 py-3 sm:py-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+          <div className="flex items-center gap-2 whitespace-nowrap shrink-0">
+            <GraduationCap className="w-6 h-6 text-teal-600 shrink-0" />
+            <span className="text-base sm:text-lg font-bold tracking-tight">DBL Campus</span>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <button
               type="button"
               onClick={() => setShowMobileAppsModal(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-teal-600/40 dark:border-teal-500/40 bg-teal-50 dark:bg-teal-950/40 text-teal-800 dark:text-teal-300 text-xs font-bold hover:bg-teal-100 dark:hover:bg-teal-900/50 transition-colors whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-teal-600/40 dark:border-teal-500/40 bg-teal-50 dark:bg-teal-950/40 text-teal-800 dark:text-teal-300 text-xs font-bold hover:bg-teal-100 dark:hover:bg-teal-900/50 transition-colors whitespace-nowrap shrink-0"
             >
               <Smartphone className="w-3.5 h-3.5 shrink-0" />
-              <span>تطبيق الهاتف (APK / IPA)</span>
+              <span className="hidden sm:inline">تطبيق الهاتف (APK / IPA)</span>
+              <span className="sm:hidden">تطبيق الهاتف</span>
             </button>
             <div className="hidden sm:block">
               <PWAInstallButton />
@@ -432,16 +458,16 @@ export default function App() {
               type="button"
               onClick={() => setDarkMode(!darkMode)}
               aria-label="تبديل الوضع الليلي والنهاري"
-              className="p-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+              className="p-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
             >
               {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
           </div>
         </header>
 
-        <main className="max-w-5xl w-full mx-auto px-4 py-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        <main className="max-w-5xl w-full mx-auto px-4 py-6 sm:py-10 grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-8 items-start">
           {/* Right Introductory Column */}
-          <div className="lg:col-span-6 space-y-5">
+          <div className="order-2 lg:order-1 lg:col-span-6 space-y-5">
             <p className="text-xs font-bold text-teal-700 dark:text-teal-400">
               منصة إدارة الدفعات الجامعية المركزية عبر الإنترنت (HTTPS Multi-User Platform)
             </p>
@@ -473,7 +499,7 @@ export default function App() {
           </div>
 
           {/* Left Authentication & Demo Switcher Card */}
-          <div className="lg:col-span-6 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm">
+          <div className="order-1 lg:order-2 lg:col-span-6 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6 shadow-sm">
             <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg mb-5">
               {demoAccounts.length > 0 && (
                 <button
@@ -555,8 +581,9 @@ export default function App() {
                     type="text"
                     value={loginIdentifier}
                     onChange={(e) => setLoginIdentifier(e.target.value)}
+                    autoComplete="username"
                     required
-                    placeholder="20251001 أو rep@demo.dbl.local"
+                    placeholder={demoAccounts.length > 0 ? '20251001 أو rep@demo.dbl.local' : 'الرقم الجامعي أو البريد الإلكتروني'}
                     className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3.5 py-2.5 font-mono"
                   />
                 </div>
@@ -566,6 +593,7 @@ export default function App() {
                     type="password"
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
+                    autoComplete="current-password"
                     required
                     className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3.5 py-2.5 font-mono"
                   />
@@ -822,7 +850,7 @@ export default function App() {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 pb-16 lg:pb-0">
         {/* Top Header */}
-        <header className="no-print sticky top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-b border-slate-200 dark:border-slate-800 px-3 sm:px-4 lg:px-8 py-2.5 flex items-center justify-between gap-2 sm:gap-4">
+        <header className="no-print safe-top sticky top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-b border-slate-200 dark:border-slate-800 px-3 sm:px-4 lg:px-8 py-2.5 flex items-center justify-between gap-2 sm:gap-4">
           {/* Mobile Brand + Menu Toggle + Active Breadcrumb */}
           <div className="flex items-center gap-2 shrink-0">
             <button
@@ -1200,7 +1228,7 @@ export default function App() {
       {/* Mobile Bottom Navigation Bar (<= 15% height cap) */}
       <nav
         aria-label="تنقل الهاتف"
-        className="no-print lg:hidden fixed bottom-0 inset-x-0 z-40 h-14 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-around px-1"
+        className="no-print safe-bottom lg:hidden fixed bottom-0 inset-x-0 z-40 min-h-14 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-around px-1"
       >
         {navItems.slice(0, 5).map((item) => {
           const Icon = item.icon;
