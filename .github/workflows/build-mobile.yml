@@ -77,7 +77,7 @@ jobs:
             if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
               [[ "$GITHUB_REF" == "refs/heads/main" ]]
               if git rev-parse -q --verify "refs/tags/${release_tag}^{commit}" >/dev/null; then  
-              [: # [ "$(git rev-parse "refs/tags/${release_tag}^{commit}")" == "$GITHUB_SHA" ]]
+             : #  [: # : # [ "$(git rev-parse "refs/tags/${release_tag}^{commit}")" == "$GITHUB_SHA" ]]
               fi
             fi
             version_name="${release_tag#v}"
