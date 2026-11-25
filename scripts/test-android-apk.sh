@@ -25,7 +25,7 @@ finish() {
   result=$?
   if [[ $result != 0 ]]; then
     tail -120 "$log" >&2
-    "$adb" devices -l >&2 || true
+    "$adb" devices -l >&2 || true; "${device[@]}" logcat -d -b crash >&2 || true
     if [[ -f "${server_log:-}" ]]; then echo "=== e2e-server.log ===" >&2; cat "$server_log" >&2 || true; fi
   fi
   kill "$emulator" 2>/dev/null || true
