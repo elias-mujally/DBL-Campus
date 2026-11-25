@@ -44,7 +44,7 @@ interface MobileReleasesPayload {
 interface MobileAppsModalProps {
   user: UserAccount | null;
   onClose: () => void;
-  notify: (msg: string, type?: 'success' | 'error' | 'info') => void;
+  notify: (msg: string, type?: 'success' | 'error') => void;
 }
 
 type ModalTab = 'download' | 'admin' | 'server';
@@ -96,7 +96,7 @@ export const MobileAppsModal = ({ user, onClose, notify }: MobileAppsModalProps)
         await navigator.clipboard.writeText(value);
         notify(successMessage, 'success');
       } else {
-        notify('النسخ التلقائي غير مدعوم في هذا المتصفح', 'info');
+        notify('النسخ التلقائي غير مدعوم في هذا المتصفح', 'success');
       }
     } catch {
       notify('تعذر نسخ النص', 'error');
@@ -143,7 +143,7 @@ export const MobileAppsModal = ({ user, onClose, notify }: MobileAppsModalProps)
       await apiFetch(`/api/mobile/releases/${platform}`, { method: 'DELETE' });
       notify(
         platform === 'apk' ? 'تم حذف حزمة Android' : 'تم حذف حزمة iOS',
-        'info'
+        'success'
       );
       await fetchReleases();
     } catch (error) {
