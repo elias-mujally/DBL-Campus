@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./styles/auroraTokens.css";
+@import "./styles/auroraMotion.css";
 @custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
@@ -258,8 +259,21 @@
   }
 
   .aurora-wrap {
+    overflow-wrap: break-word;
+    word-break: normal;
+  }
+
+  .aurora-ltr-token {
+    direction: ltr;
+    unicode-bidi: isolate;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .aurora-email {
+    direction: ltr;
+    unicode-bidi: isolate;
     overflow-wrap: anywhere;
-    word-break: break-word;
   }
 }
 
