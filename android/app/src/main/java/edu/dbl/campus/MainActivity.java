@@ -23,7 +23,7 @@ import androidx.webkit.WebMessageCompat;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import java.util.Arrays;
-import java.util.HashSet;
+import java.util.Collections;
 import org.json.JSONObject;
 import com.getcapacitor.BridgeActivity;
 import java.io.File;
@@ -94,11 +94,11 @@ registerSecureSessionListener(webView);
         });
     }
 
-private void registerSecureSessionListener(WebView webView) {
+private void registerSecureSessionListener(WebView webView) { try {
 WebViewCompat.addWebMessageListener(
 webView,
 "DBLSecureSession",
-new HashSet<>(Arrays.asList("https://localhost", "capacitor://localhost")),
+Collections.singleton("https://localhost"),
 (view, message, sourceOrigin, isMainFrame, replyProxy) -> {
 String id = "";
 try {
@@ -106,7 +106,7 @@ String rawData = message != null ? message.getData() : null;
 JSONObject payload = rawData != null && !rawData.isEmpty() ? new JSONObject(rawData) : new JSONObject();
 id = payload.optString("id", "");
 String originStr = sourceOrigin != null ? sourceOrigin.toString() : "";
-boolean trustedOrigin = "https://localhost".equals(originStr) || "capacitor://localhost".equals(originStr);
+boolean trustedOrigin = "https://localhost".equals(originStr);
 if (!isMainFrame || !trustedOrigin) {
 JSONObject err = new JSONObject();
 err.put("id", id);
@@ -149,7 +149,7 @@ replyProxy.postMessage(err.toString());
 }
 }
 }
-);
+); } catch (RuntimeException ignored) {}
 }
 
     private String sanitizeFileName(String rawName, String fallback) {
