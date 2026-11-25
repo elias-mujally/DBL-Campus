@@ -33,13 +33,13 @@ export const OfficialDocumentModal: React.FC<OfficialDocumentModalProps> = ({
 
   return createPortal(
     <div
-      className="official-document-print fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 p-4 md:p-8"
+      className="official-document-print aurora-modal-backdrop fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 p-4 md:p-8"
       role="dialog"
       aria-modal="true"
       aria-labelledby="official-doc-modal-title"
     >
       {/* Toolbar (hidden on print) */}
-      <div className="no-print mx-auto max-w-4xl mb-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 shadow-lg flex flex-wrap items-center justify-between gap-4">
+      <div className="no-print aurora-modal-panel mx-auto max-w-4xl mb-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 shadow-lg flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 id="official-doc-modal-title" className="text-base font-bold text-slate-900 dark:text-slate-100">
             تصدير وطباعة المستندات الرسمية (مقاس A4 — RTL)
@@ -277,7 +277,7 @@ export const OfficialDocumentModal: React.FC<OfficialDocumentModalProps> = ({
           <div className="mt-4 p-3 bg-amber-50 border border-amber-300 rounded-lg text-xs text-amber-950">
             <strong>تنبيه توثيقي:</strong> يوضح هذا الكشف الطلاب الذين سجلوا تأييدهم الإلكتروني من حساباتهم الموثقة في منصة الدفعة على نسخة النص ({request.versionHash}). عمود &quot;التوقيع اليدوي&quot; يُترك فارغاً تماماً ولا يُطبع فيه أي توقيع آلي، ليوقعه الطالب بخط يده عند اشتراط الإدارة ذلك.
           </div>
-
+          <div className="overflow-x-auto print:overflow-visible">
           <table className="w-full mt-5 border-collapse border border-slate-400 text-xs">
             <thead>
               <tr className="bg-slate-100 text-slate-900">
@@ -319,7 +319,7 @@ export const OfficialDocumentModal: React.FC<OfficialDocumentModalProps> = ({
                 ))
               )}
             </tbody>
-          </table>
+          </table></div>
         </div>
       )}
 
@@ -344,7 +344,7 @@ export const OfficialDocumentModal: React.FC<OfficialDocumentModalProps> = ({
           <p className="mt-4 text-xs text-slate-700">
             يُخصص هذا الكشف التكميلي لجمع التوقيعات اليدوية الحية للطلاب المؤيدين لمضمون المعاملة أعلاه والذين لم يتمكنوا من الدخول إلى المنصة أو لاشتراط الجهة المختصة إرفاق توقيعات ورقية حية:
           </p>
-
+          <div className="overflow-x-auto print:overflow-visible">
           <table className="w-full mt-4 border-collapse border border-slate-400 text-xs">
             <thead>
               <tr className="bg-slate-100 text-slate-900">
@@ -371,7 +371,7 @@ export const OfficialDocumentModal: React.FC<OfficialDocumentModalProps> = ({
               ))}
             </tbody>
           </table>
-
+          </div>
           <div className="mt-8 pt-4 border-t border-slate-300 flex items-center justify-between text-xs">
             <span>إقرار مندوب الدفعة بصحة جمع التوقيعات: {representativeName}</span>
             <span>التوقيع: ........................................</span>
