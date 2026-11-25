@@ -208,14 +208,8 @@ def audit_live_dom_contrast(page, label: str) -> None:
     print(f"[WCAG AA LIVE DOM] {label}: OK")
 
 def login_demo(page) -> None:
-    resp = page.request.post(f"{BASE_URL}/api/auth/demo-login", data={})
-    if not resp.ok:
-        resp = page.request.post(f"{BASE_URL}/api/auth/demo-login", data={"role": "admin"})
-    if resp.ok:
-        page.goto(BASE_URL, wait_until="networkidle")
-        return
-    demo_btn = page.locator("button:has-text('Demo'), button:has-text('تجريبي')").first
-    demo_btn.click()
+    page.goto(f"{BASE_URL}/?autostart=1", wait_until="networkidle")
+    page.wait_for_function("() => !document.querySelector('input[type=\"password\"]') && !!document.querySelector('header, aside, nav')", timeout=15000)
     page.wait_for_load_state("networkidle")
 
 
