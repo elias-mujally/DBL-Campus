@@ -41,3 +41,22 @@ done
 "${device[@]}" install "$apk"
 "${device[@]}" shell am start -W -n edu.dbl.campus/.MainActivity
 "${device[@]}" shell pidof edu.dbl.campus
+initial_pid="$("${device[@]}" shell pidof edu.dbl.campus | tr -d '\r')"
+[[ -n "$initial_pid" ]]
+"${device[@]}" logcat -c
+"${device[@]}" shell am force-stop edu.dbl.campus
+sleep 1
+stopped_pid="$("${device[@]}" shell pidof edu.dbl.campus 2>/dev/null | tr -d '\r' || true)"
+[[ -z "$stopped_pid" ]]
+"${device[@]}" shell am start -W -n edu.dbl.campus/.MainActivity
+sleep 2
+restarted_pid="$("${device[@]}" shell pidof edu.dbl.campus | tr -d '\r')"
+[[ -n "$restarted_pid" && "$restarted_pid" != "$initial_pid" ]]
+if "${device[@]}" logcat -d | grep -q "FATAL EXCEPTION"; then
+  "${device[@]}" logcat -d >&2
+  exit 1
+fi
+if [[ "$apk" == *debug* || "$apk" == *test* ]]; then
+  export ANDROID_SERIAL=emulator-5554
+  (cd android && bash gradlew connectedDebugAndroidTest)
+fi
