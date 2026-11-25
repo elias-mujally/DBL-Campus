@@ -35,6 +35,8 @@
   --aurora-border: #DDD9F0;
   --aurora-text: #25234D;
   --aurora-text-secondary: #4B4870;
+--aurora-text-primary: var(--aurora-text);
+--aurora-surface-2: var(--aurora-surface-elevated);
 
   /* Gradients */
   --aurora-hero-gradient: linear-gradient(135deg, #25234D 0%, #312E66 55%, #635BDB 100%);
@@ -116,6 +118,8 @@
   --aurora-border: rgba(165, 159, 247, 0.16);
   --aurora-text: #F1F0FB;
   --aurora-text-secondary: #C8C5E6;
+--aurora-text-primary: var(--aurora-text);
+--aurora-surface-2: var(--aurora-surface-elevated);
 
   /* Shadows (Dark) */
   --aurora-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
@@ -128,4 +132,20 @@
   --aurora-active-overlay: rgba(165, 159, 247, 0.18);
   --aurora-disabled-bg: rgba(165, 159, 247, 0.08);
   --aurora-disabled-text: #7F7CA8;
+}
+@theme {
+  --color-slate-50: #EEEDF8;
+  --color-slate-100: #E5E3F4;
+  --color-slate-200: #DDD9F0;
+  --color-slate-300: #C5BFE4;
+  --color-slate-400: #8D89B2;
+  --color-slate-500: #5F5C86;
+  --color-slate-600: #4B4870;
+  --color-slate-700: #36335C;
+  --color-slate-800: #222046;
+  --color-slate-900: #1A1836;
+  --color-slate-950: #121126;
+  --color-teal-500: #14B8A6;
+  --color-teal-600: #635BDB;
+  --color-teal-700: #5148C8;
 }
