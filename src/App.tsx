@@ -506,7 +506,7 @@ const myEpoch = sessionEpochRef.current;
 
         <main className="max-w-5xl w-full mx-auto px-4 py-6 sm:py-10 grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-8 items-start">
           {/* Right Introductory Column */}
-          <div className="order-2 lg:order-1 lg:col-span-6 space-y-3"><div className="aurora-hero rounded-2xl p-5 sm:p-6 text-white space-y-2.5 shadow-sm" style={{ background: 'var(--aurora-hero-gradient)' }}">
+          <div className="order-2 lg:order-1 lg:col-span-6 space-y-3"><div className="aurora-hero rounded-2xl p-5 sm:p-6 text-white space-y-2.5 shadow-sm" style={{ background: 'var(--aurora-hero-gradient)' }}>
             <p className="text-xs font-bold text-teal-300">
               منصة إدارة الدفعات الجامعية المركزية عبر الإنترنت (HTTPS Multi-User Platform)
             </p>
