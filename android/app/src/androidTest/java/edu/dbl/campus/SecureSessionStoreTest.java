@@ -58,7 +58,7 @@ public class SecureSessionStoreTest {
 
         assertTrue(activity.clearStoredSessionToken());
         assertFalse(getPrefs().contains(PREFS_KEY));
-        assertNull(activity.decryptSessionToken());
+        assertEquals("", activity.decryptSessionToken());
       });
     }
   }
