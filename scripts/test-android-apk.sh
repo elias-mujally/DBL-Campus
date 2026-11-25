@@ -58,6 +58,6 @@ if "${device[@]}" logcat -d | grep -q "FATAL EXCEPTION"; then
 fi
 if [[ "$apk" == *debug* || "$apk" == *test* ]]; then
   export ANDROID_SERIAL=emulator-5554
-  adb uninstall edu.dbl.campus || true
+  "$adb" uninstall edu.dbl.campus || true
   (cd android && bash gradlew connectedDebugAndroidTest)
 fi
