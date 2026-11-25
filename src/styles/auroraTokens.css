@@ -96,8 +96,8 @@
   --aurora-on-dark-icon: #F1F0FB;
   --aurora-on-dark-icon-inactive: #C4C0EA;
   --aurora-on-dark-icon-active: #5EEAD4;
-  --aurora-on-dark-surface: rgba(255, 255, 255, 0.14);
-  --aurora-on-dark-surface-hover: rgba(255, 255, 255, 0.22);
+  --aurora-on-dark-surface: rgba(18, 17, 38, 0.44);
+  --aurora-on-dark-surface-hover: rgba(18, 17, 38, 0.62);
   --aurora-on-dark-surface-active: rgba(99, 91, 219, 0.36);
   --aurora-on-dark-border: rgba(255, 255, 255, 0.24);
   --aurora-on-dark-border-strong: rgba(255, 255, 255, 0.40);
@@ -157,8 +157,8 @@
   --aurora-on-dark-icon: #F1F0FB;
   --aurora-on-dark-icon-inactive: #C4C0EA;
   --aurora-on-dark-icon-active: #5EEAD4;
-  --aurora-on-dark-surface: rgba(255, 255, 255, 0.14);
-  --aurora-on-dark-surface-hover: rgba(255, 255, 255, 0.22);
+  --aurora-on-dark-surface: rgba(18, 17, 38, 0.44);
+  --aurora-on-dark-surface-hover: rgba(18, 17, 38, 0.62);
   --aurora-on-dark-surface-active: rgba(99, 91, 219, 0.36);
   --aurora-on-dark-border: rgba(255, 255, 255, 0.24);
   --aurora-on-dark-border-strong: rgba(255, 255, 255, 0.40);
