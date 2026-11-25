@@ -154,7 +154,7 @@ public class MainActivity extends BridgeActivity {
         return keyGenerator.generateKey();
     }
 
-    private synchronized boolean encryptAndStoreSessionToken(String token) {
+    synchronized boolean encryptAndStoreSessionToken(String token) {
         if (token == null || token.trim().isEmpty()) {
             return clearStoredSessionToken();
         }
@@ -175,7 +175,7 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    private synchronized String decryptSessionToken() {
+    synchronized String decryptSessionToken() {
         try {
             SharedPreferences prefs = getSharedPreferences(SESSION_PREFS_NAME, Context.MODE_PRIVATE);
             String stored = prefs.getString(SESSION_PREFS_TOKEN_KEY, null);
@@ -204,7 +204,7 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    private  synchronized boolean clearStoredSessionToken() {
+     synchronized boolean clearStoredSessionToken() {
         try {
             SharedPreferences prefs = getSharedPreferences(SESSION_PREFS_NAME, Context.MODE_PRIVATE);
             return prefs.edit().remove(SESSION_PREFS_TOKEN_KEY).commit();
