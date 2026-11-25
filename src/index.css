@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./styles/auroraTokens.css";
 @custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
@@ -27,6 +28,212 @@
 
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+@layer components {
+  .aurora-card {
+    background-color: var(--aurora-surface);
+    border: 1px solid var(--aurora-border);
+    border-radius: var(--aurora-radius-lg);
+    box-shadow: var(--aurora-shadow-sm);
+    color: var(--aurora-text);
+    transition: background-color var(--aurora-transition), border-color var(--aurora-transition), box-shadow var(--aurora-transition);
+  }
+
+  .aurora-card-interactive {
+    background-color: var(--aurora-surface);
+    border: 1px solid var(--aurora-border);
+    border-radius: var(--aurora-radius-lg);
+    box-shadow: var(--aurora-shadow-sm);
+    color: var(--aurora-text);
+    transition: transform var(--aurora-transition), background-color var(--aurora-transition), border-color var(--aurora-transition), box-shadow var(--aurora-transition);
+  }
+
+  .aurora-card-interactive:hover {
+    background-color: var(--aurora-surface-elevated);
+    box-shadow: var(--aurora-shadow-md);
+    border-color: var(--aurora-violet);
+    transform: translateY(-1px);
+  }
+
+  .aurora-card-interactive:active {
+    transform: translateY(0);
+  }
+
+  .aurora-hero {
+    background: var(--aurora-hero-gradient);
+    color: #FFFFFF;
+    border-radius: var(--aurora-radius-xl);
+    box-shadow: var(--aurora-shadow-md);
+  }
+
+  .dark .aurora-hero {
+    background: var(--aurora-hero-gradient-dark);
+  }
+
+  .aurora-chrome-bar {
+    background-color: var(--aurora-chrome);
+    color: #FFFFFF;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .aurora-bottom-nav {
+    background-color: var(--aurora-surface);
+    border-top: 1px solid var(--aurora-border);
+    box-shadow: var(--aurora-shadow-md);
+    color: var(--aurora-text);
+  }
+
+  .aurora-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--aurora-space-2);
+    background-color: var(--aurora-violet);
+    color: #FFFFFF;
+    font-weight: var(--aurora-weight-semibold);
+    border-radius: var(--aurora-radius-md);
+    padding: var(--aurora-space-2) var(--aurora-space-4);
+    transition: background-color var(--aurora-transition), box-shadow var(--aurora-transition), opacity var(--aurora-transition);
+  }
+
+  .aurora-btn-primary:hover:not(:disabled) {
+    background-color: var(--aurora-violet-hover);
+  }
+
+  .aurora-btn-primary:focus-visible {
+    outline: none;
+    box-shadow: var(--aurora-focus-ring);
+  }
+
+  .aurora-btn-primary:disabled {
+    opacity: var(--aurora-disabled-opacity);
+    cursor: not-allowed;
+  }
+
+  .aurora-btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--aurora-space-2);
+    background-color: var(--aurora-surface-elevated);
+    color: var(--aurora-text);
+    border: 1px solid var(--aurora-border);
+    font-weight: var(--aurora-weight-medium);
+    border-radius: var(--aurora-radius-md);
+    padding: var(--aurora-space-2) var(--aurora-space-4);
+    transition: background-color var(--aurora-transition), border-color var(--aurora-transition), box-shadow var(--aurora-transition);
+  }
+
+  .aurora-btn-secondary:hover:not(:disabled) {
+    background-color: var(--aurora-hover-overlay);
+    border-color: var(--aurora-violet);
+  }
+
+  .aurora-btn-secondary:focus-visible {
+    outline: none;
+    box-shadow: var(--aurora-focus-ring);
+  }
+
+  .aurora-btn-secondary:disabled {
+    opacity: var(--aurora-disabled-opacity);
+    background-color: var(--aurora-disabled-bg);
+    color: var(--aurora-disabled-text);
+    cursor: not-allowed;
+  }
+
+  .aurora-btn-teal {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--aurora-space-2);
+    background-color: var(--aurora-teal);
+    color: #FFFFFF;
+    font-weight: var(--aurora-weight-semibold);
+    border-radius: var(--aurora-radius-md);
+    padding: var(--aurora-space-2) var(--aurora-space-4);
+    transition: filter var(--aurora-transition), box-shadow var(--aurora-transition), opacity var(--aurora-transition);
+  }
+
+  .aurora-btn-teal:hover:not(:disabled) {
+    filter: brightness(0.92);
+  }
+
+  .aurora-btn-teal:focus-visible {
+    outline: none;
+    box-shadow: var(--aurora-focus-ring);
+  }
+
+  .aurora-btn-teal:disabled {
+    opacity: var(--aurora-disabled-opacity);
+    cursor: not-allowed;
+  }
+
+  .aurora-input {
+    width: 100%;
+    background-color: var(--aurora-surface);
+    color: var(--aurora-text);
+    border: 1px solid var(--aurora-border);
+    border-radius: var(--aurora-radius-md);
+    padding: var(--aurora-space-2) var(--aurora-space-3);
+    transition: border-color var(--aurora-transition), box-shadow var(--aurora-transition), background-color var(--aurora-transition);
+  }
+
+  .aurora-input::placeholder {
+    color: var(--aurora-text-secondary);
+    opacity: 0.75;
+  }
+
+  .aurora-input:focus {
+    outline: none;
+    border-color: var(--aurora-violet);
+    box-shadow: var(--aurora-focus-ring);
+  }
+
+  .aurora-input:disabled {
+    background-color: var(--aurora-disabled-bg);
+    color: var(--aurora-disabled-text);
+    cursor: not-allowed;
+  }
+
+  .aurora-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--aurora-space-1);
+    padding: 0.125rem var(--aurora-space-2);
+    font-size: var(--aurora-text-xs);
+    font-weight: var(--aurora-weight-semibold);
+    border-radius: var(--aurora-radius-full);
+    background-color: var(--aurora-bg-subtle);
+    color: var(--aurora-text);
+    border: 1px solid var(--aurora-border);
+  }
+
+  .aurora-skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--aurora-bg-subtle) 25%,
+      var(--aurora-surface-elevated) 50%,
+      var(--aurora-bg-subtle) 75%
+    );
+    background-size: 200% 100%;
+    border-radius: var(--aurora-radius-md);
+    animation: aurora-shimmer 1.5s infinite linear;
+  }
+
+  .aurora-wrap {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+}
+
+@keyframes aurora-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
   }
 }
 
