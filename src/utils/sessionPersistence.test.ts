@@ -62,29 +62,36 @@ function installMockEnvironment(mockWindow: Record<string, unknown>) {
       }
     },
   };
+function createMockAndroidSecureSession(initialToken = '') {
+let token = initialToken;
+const listeners = new Set<(event: MessageEvent) => void>();
+const emit = (payload: { id: string; ok: boolean; token?: string }) => queueMicrotask(() => { const ev = { data: JSON.stringify(payload) } as MessageEvent; for (const l of [...listeners]) l(ev); });
+return {
+  getToken: () => token,
+  setToken: (next: string) => { token = next; },
+  channel: {
+    addEventListener(type: 'message', listener: (event: MessageEvent) => void) { if (type === 'message') listeners.add(listener); },
+    removeEventListener(type: 'message', listener: (event: MessageEvent) => void) { if (type === 'message') listeners.delete(listener); },
+    postMessage(raw: string) {
+      const msg = JSON.parse(raw) as { id: string; action: 'set' | 'get' | 'clear'; token?: string };
+      if (msg.action === 'set') { token = msg.token || ''; emit({ id: msg.id, ok: true, token }); return; }
+      if (msg.action === 'get') { emit({ id: msg.id, ok: true, token }); return; }
+      if (msg.action === 'clear') { token = ''; emit({ id: msg.id, ok: true, token: '' }); return; }
+      emit({ id: msg.id, ok: false });
+    },
+  },
+};
 }
 
-test('Android DBLNativeBridge saves, restores, and clears token without calling localStorage.setItem', async () => {
-  let nativeToken = '';
+test('Android DBLSecureSession saves, restores, and clears token without calling localStorage.setItem', async () => {
+  const androidSession = createMockAndroidSecureSession();
   const env = installMockEnvironment({
-    DBLNativeBridge: {
-      saveSessionToken(token: string) {
-        nativeToken = token;
-        return true;
-      },
-      getSessionToken() {
-        return nativeToken;
-      },
-      clearSessionToken() {
-        nativeToken = '';
-        return true;
-      },
-    },
+    DBLSecureSession: androidSession.channel,
   });
 
   try {
     await persistAuthToken('android-secret-token');
-    assert.equal(nativeToken, 'android-secret-token');
+    assert.equal(androidSession.getToken(), 'android-secret-token');
     assert.equal(getAuthToken(), 'android-secret-token');
 
     setAuthToken('');
@@ -93,7 +100,7 @@ test('Android DBLNativeBridge saves, restores, and clears token without calling 
     assert.equal(getAuthToken(), 'android-secret-token');
 
     await persistAuthToken('');
-    assert.equal(nativeToken, '');
+    assert.equal(androidSession.getToken(), '');
     assert.equal(getAuthToken(), '');
     assert.equal(env.storageSpy.setItemCalls, 0);
   } finally {
@@ -146,21 +153,9 @@ test('iOS webkit.messageHandlers.dblSecureStorage saves, restores, and clears to
 });
 
 test('restoreAndValidateSession restores on restart and clears token on user: null or 401 ApiError', async () => {
-  let nativeToken = 'valid-session-token';
+  const androidSession = createMockAndroidSecureSession('valid-session-token');
   const env = installMockEnvironment({
-    DBLNativeBridge: {
-      saveSessionToken(token: string) {
-        nativeToken = token;
-        return true;
-      },
-      getSessionToken() {
-        return nativeToken;
-      },
-      clearSessionToken() {
-        nativeToken = '';
-        return true;
-      },
-    },
+    DBLSecureSession: androidSession.channel,
   });
 
   try {
@@ -177,17 +172,17 @@ test('restoreAndValidateSession restores on restart and clears token on user: nu
     }));
     assert.equal(nullUserResult.hasStoredToken, false);
     assert.equal(nullUserResult.offline, false);
-    assert.equal(nativeToken, '');
+    assert.equal(androidSession.getToken() ,'');
     assert.equal(getAuthToken(), '');
 
-    nativeToken = 'expired-token';
+     androidSession.setToken('expired-token');
     const unauthorizedResult = await restoreAndValidateSession(async () => {
       throw new ApiError('Unauthorized', 401, false);
     });
     assert.equal(unauthorizedResult.hasStoredToken, false);
     assert.equal(unauthorizedResult.offline, false);
     assert.equal(unauthorizedResult.status, null);
-    assert.equal(nativeToken, '');
+    assert.equal(androidSession.getToken(), '');
     assert.equal(getAuthToken(), '');
   } finally {
     env.cleanup();
@@ -195,21 +190,9 @@ test('restoreAndValidateSession restores on restart and clears token on user: nu
 });
 
 test('restoreAndValidateSession keeps token when offline and restores once connection returns', async () => {
-  let nativeToken = 'offline-resilient-token';
+  const androidSession = createMockAndroidSecureSession('offline-resilient-token');
   const env = installMockEnvironment({
-    DBLNativeBridge: {
-      saveSessionToken(token: string) {
-        nativeToken = token;
-        return true;
-      },
-      getSessionToken() {
-        return nativeToken;
-      },
-      clearSessionToken() {
-        nativeToken = '';
-        return true;
-      },
-    },
+    DBLSecureSession: androidSession.channel,
   });
 
   try {
@@ -219,7 +202,7 @@ test('restoreAndValidateSession keeps token when offline and restores once conne
     assert.equal(offlineResult.hasStoredToken, true);
     assert.equal(offlineResult.offline, true);
     assert.equal(offlineResult.status, null);
-    assert.equal(nativeToken, 'offline-resilient-token');
+    assert.equal(androidSession.getToken(), 'offline-resilient-token');
     assert.equal(getAuthToken(), 'offline-resilient-token');
 
     setAuthToken('');
@@ -286,4 +269,86 @@ test('UI visibility and official Android APK URL rules', () => {
   assert.ok(OFFICIAL_ANDROID_APK_URL.startsWith(OFFICIAL_RELEASES_URL));
   assert.ok(OFFICIAL_ANDROID_APK_URL.endsWith('/download/DBL-Campus-Android.apk'));
   assert.equal(/v?\d+\.\d+/.test(OFFICIAL_ANDROID_APK_URL), false);
+});
+
+test('restoreAndValidateSession ignores stale { user } response after persistAuthToken("") logout', async () => {
+  const androidSession = createMockAndroidSecureSession('old-session-token');
+  const env = installMockEnvironment({
+    DBLSecureSession: androidSession.channel,
+  });
+
+  try {
+    let resolveFetch!: (val: { user: { id: string; role: string } }) => void;
+    const validationPromise = restoreAndValidateSession(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await persistAuthToken('');
+
+    resolveFetch({ user: { id: 'old-u1', role: 'student' } });
+    const result = await validationPromise;
+
+    assert.equal(result.stale, true);
+    assert.equal(result.status, null);
+    assert.equal(result.hasStoredToken, false);
+    assert.equal(androidSession.getToken(), '');
+    assert.equal(getAuthToken(), '');
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('restoreAndValidateSession ignores stale 401 or { user: null } after persistAuthToken("new-account-token")', async () => {
+  const androidSession = createMockAndroidSecureSession('old-account-token');
+  const env = installMockEnvironment({
+    DBLSecureSession: androidSession.channel,
+  });
+
+  try {
+    let rejectFetch!: (err: unknown) => void;
+    const stale401Promise = restoreAndValidateSession(
+      () =>
+        new Promise<{ user: unknown | null }>((_, reject) => {
+          rejectFetch = reject;
+        }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await persistAuthToken('new-account-token');
+
+    rejectFetch(new ApiError('Unauthorized', 401, false));
+    const res401 = await stale401Promise;
+
+    assert.equal(res401.stale, true);
+    assert.equal(res401.status, null);
+    assert.equal(res401.hasStoredToken, true);
+    assert.equal(androidSession.getToken(), 'new-account-token');
+    assert.equal(getAuthToken(), 'new-account-token');
+
+    let resolveNullFetch!: (val: { user: null }) => void;
+    const staleNullPromise = restoreAndValidateSession(
+      () =>
+        new Promise<{ user: null }>((resolve) => {
+          resolveNullFetch = resolve;
+        }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await persistAuthToken('new-account-token');
+
+    resolveNullFetch({ user: null });
+    const resNull = await staleNullPromise;
+
+    assert.equal(resNull.stale, true);
+    assert.equal(resNull.status, null);
+    assert.equal(resNull.hasStoredToken, true);
+    assert.equal(androidSession.getToken(), 'new-account-token');
+    assert.equal(getAuthToken(), 'new-account-token');
+  } finally {
+    env.cleanup();
+  }
 });
