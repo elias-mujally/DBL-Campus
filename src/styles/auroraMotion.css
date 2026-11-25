@@ -188,7 +188,3 @@ html.aurora-theme-switching * {
     scroll-behavior: auto !important;
   }
 }
-  --ease-aurora-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-aurora-in-out: cubic-bezier(0.4, 0, 0.2, 1);
-  --ease-aurora-spring: cubic-bezier(0.22, 1, 0.36, 1);
-}
