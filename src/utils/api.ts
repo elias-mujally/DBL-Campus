@@ -69,16 +69,23 @@ export function restorePersistedAuthToken(): Promise<string> {
 
 export async function restoreAndValidateSession<T extends { user: unknown | null }>(
   fetchStatus: () => Promise<T>,
-): Promise<{ status: T | null; offline: boolean; hasStoredToken: boolean }> {
+): Promise<{ status: T | null; offline: boolean; hasStoredToken: boolean; stale?: boolean }> {
   const token = await restorePersistedAuthToken();
+  const afterRestoreSeq = tokenMutationSeq;
   try {
     const status = await fetchStatus();
+    if (tokenMutationSeq !== afterRestoreSeq) {
+       return { status: null, offline: false, stale: true, hasStoredToken: Boolean(authTokenMemory) };
+    }
     if (status.user === null) {
       await persistAuthToken('');
       return { status, offline: false, hasStoredToken: false };
     }
     return { status, offline: false, hasStoredToken: Boolean(token) };
   } catch (err) {
+    if (tokenMutationSeq !== afterRestoreSeq) {
+       return { status: null, offline: false, stale: true, hasStoredToken: Boolean(authTokenMemory) };
+    }
     if (err instanceof ApiError && err.isNetworkError) {
       return { status: null, offline: true, hasStoredToken: Boolean(token) };
     }
