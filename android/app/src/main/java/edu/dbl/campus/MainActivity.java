@@ -32,6 +32,10 @@ import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
+import android.os.Looper;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MainActivity extends BridgeActivity {
     private static final int MAX_BASE64_EXPORT_BYTES = 16 * 1024 * 1024;
@@ -127,7 +131,7 @@ public class MainActivity extends BridgeActivity {
             runOnUiThread(() -> Toast.makeText(this, "تعذر بدء تنزيل الملف.", Toast.LENGTH_SHORT).show());
         }
     }
-    private SecretKey getOrCreateSessionKey() throws Exception {
+    private synchronized SecretKey getOrCreateSessionKey() throws Exception {
         KeyStore keyStore = KeyStore.getInstance(KEYSTORE_PROVIDER);
         keyStore.load(null);
         if (keyStore.containsAlias(SESSION_KEY_ALIAS)) {
@@ -150,7 +154,7 @@ public class MainActivity extends BridgeActivity {
         return keyGenerator.generateKey();
     }
 
-    private boolean encryptAndStoreSessionToken(String token) {
+    private synchronized boolean encryptAndStoreSessionToken(String token) {
         if (token == null || token.trim().isEmpty()) {
             return clearStoredSessionToken();
         }
@@ -171,7 +175,7 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    private String decryptSessionToken() {
+    private synchronized String decryptSessionToken() {
         try {
             SharedPreferences prefs = getSharedPreferences(SESSION_PREFS_NAME, Context.MODE_PRIVATE);
             String stored = prefs.getString(SESSION_PREFS_TOKEN_KEY, null);
@@ -200,7 +204,7 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    private boolean clearStoredSessionToken() {
+    private  synchronized boolean clearStoredSessionToken() {
         try {
             SharedPreferences prefs = getSharedPreferences(SESSION_PREFS_NAME, Context.MODE_PRIVATE);
             return prefs.edit().remove(SESSION_PREFS_TOKEN_KEY).commit();
@@ -287,18 +291,63 @@ public class MainActivity extends BridgeActivity {
             }
         }
 
+        private boolean isTrustedLocalOrigin() {
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                return isTrustedOriginUrl(webView.getUrl());
+            }
+            AtomicBoolean trusted = new AtomicBoolean(false);
+            CountDownLatch latch = new CountDownLatch(1);
+            runOnUiThread(() -> {
+                try {
+                    trusted.set(isTrustedOriginUrl(webView.getUrl()));
+                } finally {
+                    latch.countDown();
+                }
+            });
+            try {
+                if (!latch.await(2, TimeUnit.SECONDS)) {
+                    return false;
+                }
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+            return trusted.get();
+        }
+
+        private boolean isTrustedOriginUrl(String url) {
+            if (url == null) {
+                return false;
+            }
+            return url.equals("https://localhost")
+                || url.startsWith("https://localhost/")
+                || url.startsWith("https://localhost:")
+                || url.equals("capacitor://localhost")
+                || url.startsWith("capacitor://localhost/")
+                || url.startsWith("capacitor://localhost:");
+        }
+
         @JavascriptInterface
         public boolean saveSessionToken(String token) {
+            if (!isTrustedLocalOrigin()) {
+                return false;
+            }
             return encryptAndStoreSessionToken(token);
         }
 
         @JavascriptInterface
         public String getSessionToken() {
+            if (!isTrustedLocalOrigin()) {
+                return null;
+            }
             return decryptSessionToken();
         }
 
         @JavascriptInterface
         public boolean clearSessionToken() {
+            if (!isTrustedLocalOrigin()) {
+                return false;
+            }
             return clearStoredSessionToken();
         }
     }
