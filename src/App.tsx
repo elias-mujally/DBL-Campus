@@ -476,7 +476,7 @@ const myEpoch = sessionEpochRef.current;
 
         <header className="safe-top flex items-center justify-between gap-2 sm:gap-6 px-3 sm:px-6 py-3 sm:py-4 border-b border-[var(--aurora-on-dark-border)] bg-[var(--aurora-chrome)] text-[var(--aurora-on-dark-text)]">
           <div className="flex items-center gap-2 whitespace-nowrap shrink-0">
-            <GraduationCap className="w-6 h-6 text-teal-600 shrink-0" />
+            <GraduationCap className="w-6 h-6 text-[#5EEAD4] shrink-0" />
             <span className="text-base sm:text-lg font-bold tracking-tight">DBL Campus</span>
           </div>
 
