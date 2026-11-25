@@ -14,8 +14,11 @@ export class ApiError extends Error {
 }
 
 let authTokenMemory = '';
+let tokenMutationSeq = 0;
+let tokenOperationChain: Promise<void> = Promise.resolve();
 
 export function setAuthToken(token: string): void {
+  tokenMutationSeq += 1;
   authTokenMemory = token;
 }
 
@@ -23,21 +26,45 @@ export function getAuthToken(): string {
   return authTokenMemory;
 }
 
-export async function persistAuthToken(token: string): Promise<void> {
-  authTokenMemory = token;
-  if (!token) {
-    await clearNativeSessionToken();
-    return;
-  }
-  await saveNativeSessionToken(token);
+function enqueueTokenOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const result = tokenOperationChain.then(operation, operation);
+  tokenOperationChain = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
 }
 
-export async function restorePersistedAuthToken(): Promise<string> {
-  const token = await loadNativeSessionToken();
-  if (token) {
-    authTokenMemory = token;
-  }
-  return token;
+export function persistAuthToken(token: string): Promise<void> {
+  const mutationSeq = ++tokenMutationSeq;
+  authTokenMemory = token;
+  return enqueueTokenOperation(async () => {
+    if (mutationSeq !== tokenMutationSeq) {
+      return;
+    }
+    if (!token) {
+      await clearNativeSessionToken();
+      return;
+    }
+    await saveNativeSessionToken(token);
+  });
+}
+
+export function restorePersistedAuthToken(): Promise<string> {
+  const startSeq = tokenMutationSeq;
+  return enqueueTokenOperation(async () => {
+    if (startSeq !== tokenMutationSeq) {
+      return authTokenMemory;
+    }
+    const token = await loadNativeSessionToken();
+    if (startSeq !== tokenMutationSeq) {
+      return authTokenMemory;
+    }
+    if (token) {
+      authTokenMemory = token;
+    }
+    return token;
+  });
 }
 
 export async function restoreAndValidateSession<T extends { user: unknown | null }>(
