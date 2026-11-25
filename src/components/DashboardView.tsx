@@ -90,10 +90,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   return (
     <div className="space-y-6">
       {/* Top Welcome & Quick Actions Banner */}
-      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="aurora-hero p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-            <span className="font-bold text-teal-700 dark:text-teal-400">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-white/75">
+            <span className="px-2.5 py-0.5 rounded-full font-bold bg-[#14B8A6]/20 text-[#5EEAD4] border border-[#14B8A6]/35">
               {ROLE_LABELS_AR[user.role]}
             </span>
             <span aria-hidden="true">·</span>
@@ -106,16 +106,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {user.isDemo && (
               <>
                 <span aria-hidden="true">·</span>
-                <span className="text-amber-700 dark:text-amber-400 font-semibold">
+                <span className="px-2 py-0.5 rounded-full bg-[#F59E0B]/20 text-[#FCD34D] border border-[#F59E0B]/35 font-semibold">
                   بيئة تجربة تفاعلية
                 </span>
               </>
             )}
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1.5">
+          <h1 className="text-2xl font-bold text-white mt-1.5 aurora-wrap">
             مرحباً بك، {user.fullName.replace(' - تجريبي)', ')')}
           </h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+          <p className="text-sm text-white/80 mt-1 aurora-wrap">
             {isStaff
               ? 'لوحة قيادة الدفعة — تابع المحاضرات، الطلبات قيد المعالجة، وتفويض المهام لفريق المنسقين.'
               : 'لوحة الطالب الأكاديمية — تابع محاضرات مجموعتك، تقدمك في التكاليف، وأيّد الطلبات الجماعية.'}
@@ -176,7 +176,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* KPI Summary Strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+        <div className="aurora-card p-4 border-s-4 border-s-[#635BDB]">
           <div className="text-xs text-slate-500 dark:text-slate-400">
             محاضرات {DAY_NAMES_AR[academicToday]}
           </div>
@@ -190,7 +190,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+        <div className="aurora-card p-4 border-s-4 border-s-[#14B8A6]">
           <div className="text-xs text-slate-500 dark:text-slate-400">
             التكاليف السارية
           </div>
@@ -198,7 +198,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <span className="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white">
               {upcomingAssignments.length}
             </span>
-            <span className="text-xs text-amber-700 dark:text-amber-400">
+            <span className="text-xs text-[var(--aurora-teal-text)] aurora-wrap tabular-nums">
               {
                 upcomingAssignments.filter((a) => a.personalStatus === 'completed')
                   .length
@@ -208,7 +208,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+        <div className="aurora-card p-4 border-s-4 border-s-[#F59E0B]">
           <div className="text-xs text-slate-500 dark:text-slate-400">
             طلبات مفتوحة للتأييد
           </div>
@@ -222,7 +222,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+        <div className="aurora-card p-4 border-s-4 border-s-[#25234D] dark:border-s-[#A59FF7]">
           <div className="text-xs text-slate-500 dark:text-slate-400">
             {isStaff ? 'المهام المفوضة النشطة' : 'ملفات المكتبة الدراسية'}
           </div>
@@ -295,7 +295,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                   <div className="text-xs">
                     {lec.status === 'confirmed_temp' ? (
-                      <span className="text-amber-700 dark:text-amber-400 font-semibold">
+                      <span className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1.5">
                         تغيير مؤقت مؤكد
                       </span>
                     ) : lec.status === 'proposed' ? (
