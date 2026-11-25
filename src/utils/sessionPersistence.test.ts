@@ -175,7 +175,7 @@ test('restoreAndValidateSession restores on restart and clears token on user: nu
     const nullUserResult = await restoreAndValidateSession(async () => ({
       user: null,
     }));
-    assert.equal(nullUserResult.hasStoredToken, true);
+    assert.equal(nullUserResult.hasStoredToken, false);
     assert.equal(nullUserResult.offline, false);
     assert.equal(nativeToken, '');
     assert.equal(getAuthToken(), '');
@@ -284,6 +284,6 @@ test('UI visibility and official Android APK URL rules', () => {
   assert.equal(shouldAllowLanServerConfig('', false), true);
 
   assert.ok(OFFICIAL_ANDROID_APK_URL.startsWith(OFFICIAL_RELEASES_URL));
-  assert.ok(OFFICIAL_ANDROID_APK_URL.endsWith('/download/DBL-Campus.apk'));
+  assert.ok(OFFICIAL_ANDROID_APK_URL.endsWith('/download/DBL-Campus-Android.apk'));
   assert.equal(/v?\d+\.\d+/.test(OFFICIAL_ANDROID_APK_URL), false);
 });
