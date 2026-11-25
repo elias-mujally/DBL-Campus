@@ -3,9 +3,10 @@ import {
   CheckCircle2,
   Copy,
   Download,
-  GitBranch,
-  Globe,
+  ExternalLink,
   Server,
+  Share2,
+  ShieldCheck,
   Smartphone,
   Trash2,
   Upload,
@@ -20,7 +21,11 @@ import {
   saveServerBaseUrl,
   validateServerBaseUrl,
 } from '../utils/mobileConfig';
-import { getAppVersion } from '../utils/nativeBridge';
+import {
+  OFFICIAL_ANDROID_APK_URL,
+  OFFICIAL_RELEASES_URL,
+  shouldAllowLanServerConfig,
+} from '../utils/nativeBridge';
 
 interface MobileReleaseInfo {
   platform: 'apk' | 'ipa';
@@ -34,8 +39,6 @@ interface MobileReleaseInfo {
 interface MobileReleasesPayload {
   apk: MobileReleaseInfo;
   ipa: MobileReleaseInfo;
-  lanUrls: string[];
-  workflowFile: string;
 }
 
 interface MobileAppsModalProps {
@@ -44,135 +47,132 @@ interface MobileAppsModalProps {
   notify: (msg: string, type?: 'success' | 'error') => void;
 }
 
-export const MobileAppsModal: React.FC<MobileAppsModalProps> = ({
-  user,
-  onClose,
-  notify,
-}) => {
-  const bundledOrigin = getBundledServerOrigin();
+type ModalTab = 'download' | 'admin' | 'server';
+
+export const MobileAppsModal = ({ user, onClose, notify }: MobileAppsModalProps) => {
   const isRepresentative = user?.role === 'representative';
-  const [activeTab, setActiveTab] = useState<'download' | 'server'>(
-    isNativeCapacitorApp() ? 'server' : 'download'
-  );
+  const isNativeApp = isNativeCapacitorApp();
+  const bundledOrigin = getBundledServerOrigin();
+  const allowLanServerConfig = shouldAllowLanServerConfig(bundledOrigin, import.meta.env.PROD);
+  const canConfigureLanServer = allowLanServerConfig && isRepresentative;
+
+  const [activeTab, setActiveTab] = useState<ModalTab>('download');
   const [releases, setReleases] = useState<MobileReleasesPayload | null>(null);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState<'apk' | 'ipa' | null>(null);
+  const [uploadingPlatform, setUploadingPlatform] = useState<'apk' | 'ipa' | null>(null);
+  const [deletingPlatform, setDeletingPlatform] = useState<'apk' | 'ipa' | null>(null);
 
-  // Native LAN Server connection state
-  const [serverUrlInput, setServerUrlInput] = useState(getSavedServerBaseUrl());
+  const [serverInput, setServerInput] = useState(() => getSavedServerBaseUrl());
   const [testingServer, setTestingServer] = useState(false);
-  const [serverCheckStatus, setServerCheckStatus] = useState<{
-    ok: boolean;
-    message: string;
-  } | null>(null);
 
-  const loadReleases = useCallback(async () => {
+  const fetchReleases = useCallback(async () => {
     setLoading(true);
     try {
       const data = await apiFetch<MobileReleasesPayload>('/api/mobile/releases');
       setReleases(data);
-    } catch {
-      setReleases(null);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'تعذر جلب معلومات التطبيقات', 'error');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [notify]);
 
   useEffect(() => {
-    loadReleases();
-  }, [loadReleases]);
+    void fetchReleases();
+  }, [fetchReleases]);
 
-  const handleUploadPackage = async (
-    platform: 'apk' | 'ipa',
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const expectedExt = platform === 'apk' ? '.apk' : '.ipa';
-    if (!file.name.toLowerCase().endsWith(expectedExt)) {
-      notify(`يرجى اختيار ملف بامتداد ${expectedExt} فقط.`, 'error');
-      e.target.value = '';
-      return;
+  useEffect(() => {
+    if (activeTab === 'admin' && !isRepresentative) {
+      setActiveTab('download');
     }
+    if (activeTab === 'server' && !canConfigureLanServer) {
+      setActiveTab('download');
+    }
+  }, [activeTab, isRepresentative, canConfigureLanServer]);
 
-    setUploading(platform);
+  const handleCopyText = async (value: string, successMessage: string) => {
     try {
-      const arrayBuf = await file.arrayBuffer();
-      const res = await fetch(buildApiUrl(`/api/mobile/releases/upload?platform=${platform}`), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/octet-stream',
-          Authorization: `Bearer ${getAuthToken()}`,
-        },
-        body: arrayBuf,
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || 'تعذر رفع حزمة التطبيق.');
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+        notify(successMessage, 'success');
+      } else {
+        notify('النسخ التلقائي غير مدعوم في هذا المتصفح', 'success');
       }
-      notify(`تم رفع حزمة ${platform.toUpperCase()} بنجاح وأصبحت جاهزة لتنزيل الطلاب`);
-      await loadReleases();
-    } catch (err: unknown) {
-      notify(err instanceof Error ? err.message : 'تعذر رفع الحزمة', 'error');
+    } catch {
+      notify('تعذر نسخ النص', 'error');
+    }
+  };
+
+  const handleUploadPackage = async (platform: 'apk' | 'ipa', file: File | null) => {
+    if (!file || !isRepresentative) return;
+    setUploadingPlatform(platform);
+    try {
+      const formData = new FormData();
+      formData.append('platform', platform);
+      formData.append('package', file);
+
+      const token = getAuthToken();
+      const response = await fetch(buildApiUrl('/api/mobile/releases/upload'), {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        credentials: 'include',
+        body: formData,
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || 'تعذر رفع حزمة التطبيق');
+      }
+
+      notify(
+        platform === 'apk' ? 'تم رفع حزمة Android بنجاح' : 'تم رفع حزمة iOS بنجاح',
+        'success'
+      );
+      await fetchReleases();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'تعذر رفع حزمة التطبيق', 'error');
     } finally {
-      setUploading(null);
-      e.target.value = '';
+      setUploadingPlatform(null);
     }
   };
 
   const handleDeletePackage = async (platform: 'apk' | 'ipa') => {
+    if (!isRepresentative) return;
+    setDeletingPlatform(platform);
     try {
       await apiFetch(`/api/mobile/releases/${platform}`, { method: 'DELETE' });
-      notify(`تم حذف حزمة ${platform.toUpperCase()} من الخادم`);
-      await loadReleases();
-    } catch (err: unknown) {
-      notify(err instanceof Error ? err.message : 'تعذر الحذف', 'error');
+      notify(
+        platform === 'apk' ? 'تم حذف حزمة Android' : 'تم حذف حزمة iOS',
+        'success'
+      );
+      await fetchReleases();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'تعذر حذف الحزمة', 'error');
+    } finally {
+      setDeletingPlatform(null);
     }
   };
 
-  const handleCopyText = async (text: string, label: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      notify(`تم نسخ ${label}`);
-    } catch {
-      notify('تعذر النسخ التلقائي، يمكنك النسخ يدوياً', 'error');
-    }
-  };
-
-  const handleTestAndSaveServer = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const check = validateServerBaseUrl(serverUrlInput);
-    if (!check.valid) {
-      setServerCheckStatus({ ok: false, message: check.errorAr || 'عنوان غير صالح' });
+  const handleSaveServerUrl = async () => {
+    if (!canConfigureLanServer) return;
+    const validation = validateServerBaseUrl(serverInput);
+    if (!validation.valid) {
+      notify(validation.errorAr || 'عنوان الخادم غير صالح', 'error');
       return;
     }
 
     setTestingServer(true);
-    setServerCheckStatus(null);
     try {
-      const targetUrl = check.normalized
-        ? `${check.normalized}/api/auth/status`
-        : '/api/auth/status';
-      const res = await fetch(targetUrl);
-      if (!res.ok) {
-        throw new Error(`استجاب الخادم برمز خطأ (${res.status})`);
+      const targetUrl = validation.normalized ? `${validation.normalized}/api/health` : '/api/health';
+      const response = await fetch(targetUrl);
+      if (!response.ok) {
+        throw new Error(`فشل الاتصال بالخادم (HTTP ${response.status})`);
       }
-      if (!bundledOrigin) saveServerBaseUrl(check.normalized);
-      setServerUrlInput(check.normalized);
-      setServerCheckStatus({
-        ok: true,
-        message: bundledOrigin ? `تم الاتصال بخادم الدفعة (${bundledOrigin}).` : check.normalized
-          ? `تم الاتصال بالخادم (${check.normalized}) وحفظ الإعداد بنجاح.`
-          : 'تمت إعادة الضبط للاتصال بالخادم المحلي الافتراضي.',
-      });
-      notify(bundledOrigin ? 'تم الاتصال بخادم الدفعة' : 'تم حفظ عنوان خادم الدفعة');
-    } catch {
-      setServerCheckStatus({
-        ok: false,
-        message:
-          'تعذر الوصول إلى خادم الدفعة. تحقق من الاتصال بالإنترنت وعنوان HTTPS.',
-      });
+      saveServerBaseUrl(validation.normalized);
+      setServerInput(validation.normalized);
+      notify('تم حفظ عنوان الخادم والتحقق من الاتصال بنجاح', 'success');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'تعذر الاتصال بالخادم', 'error');
     } finally {
       setTestingServer(false);
     }
@@ -180,384 +180,300 @@ export const MobileAppsModal: React.FC<MobileAppsModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 overflow-y-auto"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="mobile-apps-modal-title"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4"
+      dir="rtl"
     >
-      <div className="w-full max-w-2xl rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden my-auto">
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
-            <Smartphone className="w-5 h-5 text-teal-600 shrink-0" />
+      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl">
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400">
+              <Smartphone className="h-5 w-5" />
+            </div>
             <div>
-              <h2
-                id="mobile-apps-modal-title"
-                className="text-base font-bold text-slate-900 dark:text-slate-100"
-              >
-                تطبيق الهاتف الأصلي — Android (APK) و iOS (IPA)
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                تطبيق الدفعة على الهاتف
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                مبني عبر Capacitor مع خط بناء GitHub Actions جاهز وتوزيع محلي عبر الشبكة.
+                ثبّت التطبيق الرسمي على Android أو أضف المنصة إلى شاشة iPhone الرئيسية
               </p>
             </div>
           </div>
-
           <button
             type="button"
             onClick={onClose}
-            aria-label="إغلاق نافذة تطبيق الهاتف"
-            className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+            aria-label="إغلاق"
+            className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
           >
-            <X className="w-4 h-4" />
+            <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Mode Tabs */}
-        <div className="px-6 pt-4">
-          <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
+        {(isRepresentative || canConfigureLanServer) && (
+          <div className="flex flex-wrap gap-2 border-b border-slate-200 dark:border-slate-800 px-6 py-3 bg-slate-50/70 dark:bg-slate-950/40">
             <button
               type="button"
               onClick={() => setActiveTab('download')}
-              className={`flex-1 py-2 text-xs font-bold rounded-md transition-colors ${
+              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
                 activeTab === 'download'
-                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800'
               }`}
             >
-              تنزيل وبناء حزم APK / IPA
+              <Download className="h-4 w-4" />
+              تحميل التطبيق
             </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('server')}
-              className={`flex-1 py-2 text-xs font-bold rounded-md transition-colors ${
-                activeTab === 'server'
-                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400'
-              }`}
-            >
-              إعداد خادم الشبكة المحلية (داخل APK / IPA)
-            </button>
+
+            {isRepresentative && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('admin')}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                  activeTab === 'admin'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800'
+                }`}
+              >
+                <ShieldCheck className="h-4 w-4" />
+                إدارة الحزم
+              </button>
+            )}
+
+            {canConfigureLanServer && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('server')}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                  activeTab === 'server'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800'
+                }`}
+              >
+                <Server className="h-4 w-4" />
+                إعداد خادم الشبكة المحلية
+              </button>
+            )}
           </div>
-        </div>
+        )}
 
-        {/* Body */}
-        <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
-          {activeTab === 'download' ? (
-            <>
-              {/* Two-column APK & IPA Release Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Android APK Card */}
-                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 p-4 flex flex-col justify-between gap-4">
-                  <div>
-                    <div className="flex items-center justify-between text-xs text-slate-500">
-                      <span className="font-bold text-emerald-700 dark:text-emerald-400">
-                        Android (.apk)
-                      </span>
-                      <span className="font-mono">edu.dbl.campus</span>
-                    </div>
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mt-1.5">
-                      حزمة الأندرويد المباشرة (APK)
+        <div className="p-6 space-y-5">
+          {activeTab === 'download' && (
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 p-5 flex flex-col justify-between gap-4">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                      تطبيق Android الرسمي
                     </h3>
-                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
-                      تعمل على هواتف Android 8+ مع دعم الاتصال المباشر بخادم الدفعة عبر Wi-Fi المحلي.
-                    </p>
-
-                    {!loading && releases?.apk.available && (
-                      <div className="mt-3 pt-2.5 border-t border-slate-200 dark:border-slate-800 text-[11px] text-slate-500 space-y-1">
-                        <div>
-                          الحجم:{' '}
-                          <span className="font-mono tabular-nums font-semibold text-slate-800 dark:text-slate-200">
-                            {formatBytes(releases.apk.sizeBytes)}
-                          </span>
-                        </div>
-                        <div className="truncate" title={releases.apk.sha256 || ''}>
-                          SHA-256:{' '}
-                          <span className="font-mono">{releases.apk.sha256?.slice(0, 16)}...</span>
-                        </div>
-                      </div>
-                    )}
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-950/60 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      متاح
+                    </span>
                   </div>
-
-                  <div className="space-y-2">
-                    {releases?.apk.available ? (
-                      <div className="flex items-center gap-2">
-                        <a
-                          href={buildApiUrl('/api/mobile/download/apk')}
-                          download="DBL-Campus-Android.apk"
-                          className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition-colors"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>تنزيل APK الآن</span>
-                        </a>
-                        {isRepresentative && (
-                          <button
-                            type="button"
-                            onClick={() => handleDeletePackage('apk')}
-                            aria-label="حذف ملف APK"
-                            className="p-2 rounded-lg border border-rose-300 dark:border-rose-800 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    ) : (
-                      <p className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
-                        لم يُرفع ملف APK على الخادم المحلي بعد — أنشئه بضغطة زر من GitHub Actions أدناه.
-                      </p>
-                    )}
-
-                    {isRepresentative && (
-                      <label className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>
-                          {uploading === 'apk'
-                            ? 'جاري رفع ملف APK...'
-                            : 'رفع ملف APK لتوزيعه على الطلاب'}
-                        </span>
-                        <input
-                          type="file"
-                          accept=".apk,application/vnd.android.package-archive"
-                          onChange={(e) => handleUploadPackage('apk', e)}
-                          disabled={uploading !== null}
-                          className="hidden"
-                        />
-                      </label>
-                    )}
-                  </div>
+                  <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                    نزّل التطبيق الرسمي مباشرة على هاتف Android وثبّته بسهولة لمتابعة المحاضرات والإشعارات.
+                  </p>
                 </div>
 
-                {/* iOS IPA Card */}
-                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 p-4 flex flex-col justify-between gap-4">
-                  <div>
-                    <div className="flex items-center justify-between text-xs text-slate-500">
-                      <span className="font-bold text-sky-700 dark:text-sky-400">
-                        iOS (.ipa)
+                <div className="space-y-2.5">
+                  <a
+                    href={OFFICIAL_ANDROID_APK_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-4 py-2.5 text-sm font-semibold text-white transition"
+                  >
+                    <Download className="h-4 w-4" />
+                    تنزيل تطبيق Android الرسمي
+                  </a>
+
+                  {!loading && releases?.apk.available && (
+                    <a
+                      href={buildApiUrl('/api/mobile/download/apk')}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 px-4 py-2.5 text-sm font-semibold text-slate-800 dark:text-slate-100 transition"
+                    >
+                      <Download className="h-4 w-4" />
+                      <span>تنزيل من خادم المنصة</span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">
+                        ({formatBytes(releases.apk.sizeBytes)})
                       </span>
-                      <span className="font-mono">Xcode / AltStore</span>
-                    </div>
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mt-1.5">
-                      حزمة الآيفون والآيباد (IPA)
-                    </h3>
-                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
-                      تحتاج حزمة iOS إلى توقيع صالح وتوزيع عبر TestFlight أو ملف تعريف للأجهزة المسجلة.
-                    </p>
-
-                    {!loading && releases?.ipa.available && (
-                      <div className="mt-3 pt-2.5 border-t border-slate-200 dark:border-slate-800 text-[11px] text-slate-500 space-y-1">
-                        <div>
-                          الحجم:{' '}
-                          <span className="font-mono tabular-nums font-semibold text-slate-800 dark:text-slate-200">
-                            {formatBytes(releases.ipa.sizeBytes)}
-                          </span>
-                        </div>
-                        <div className="truncate" title={releases.ipa.sha256 || ''}>
-                          SHA-256:{' '}
-                          <span className="font-mono">{releases.ipa.sha256?.slice(0, 16)}...</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    {releases?.ipa.available ? (
-                      <div className="flex items-center gap-2">
-                        <a
-                          href={buildApiUrl('/api/mobile/download/ipa')}
-                          download="DBL-Campus-iOS.ipa"
-                          className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg bg-slate-900 dark:bg-teal-600 text-white hover:opacity-90 transition-opacity"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>تنزيل IPA الآن</span>
-                        </a>
-                        {isRepresentative && (
-                          <button
-                            type="button"
-                            onClick={() => handleDeletePackage('ipa')}
-                            aria-label="حذف ملف IPA"
-                            className="p-2 rounded-lg border border-rose-300 dark:border-rose-800 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    ) : (
-                      <p className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
-                        لم يُرفع ملف IPA على الخادم المحلي بعد — أنشئه مجاناً على خادم macOS في GitHub Actions.
-                      </p>
-                    )}
-
-                    {isRepresentative && (
-                      <label className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>
-                          {uploading === 'ipa'
-                            ? 'جاري رفع ملف IPA...'
-                            : 'رفع ملف IPA لتوزيعه على الطلاب'}
-                        </span>
-                        <input
-                          type="file"
-                          accept=".ipa,application/octet-stream"
-                          onChange={(e) => handleUploadPackage('ipa', e)}
-                          disabled={uploading !== null}
-                          className="hidden"
-                        />
-                      </label>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* GitHub Actions Automated Build Pipeline Box */}
-              <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-2.5 text-xs">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-slate-100">
-                    <GitBranch className="w-4 h-4 text-teal-600" />
-                    <span>البناء السحابي التلقائي عبر GitHub Actions (بدون جهاز Mac أو Android Studio)</span>
-                  </div>
-                </div>
-                <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
-                  يحتوي المشروع على مشروعي <strong>Android</strong> و<strong>iOS</strong> الأصليين (Capacitor) مع ملف البناء الآلي{' '}
-                  <code dir="ltr" className="inline-block font-mono text-teal-700 dark:text-teal-400">
-                    .github/workflows/build-mobile.yml
-                  </code>
-                  . عند رفع المشروع إلى GitHub وتشغيل سير العمل (أو إنشاء وسم إصدار مثل{' '}
-                  <code dir="ltr" className="inline-block font-mono">
-                    v{getAppVersion()}
-                  </code>
-                  )، يقوم GitHub تلقائياً ببناء وفحص وتصدير:
-                </p>
-                <div
-                  dir="ltr"
-                  className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-left font-mono text-[11px] text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/70 p-2.5 rounded-lg"
-                >
-                  <span>1. DBL-Campus-Android.apk (Signed Release + Emulator Check)</span>
-                  <span>2. DBL-Campus-iOS-unsigned.ipa (Simulator Check + Signing Ready)</span>
-                </div>
-                <p className="text-[11px] text-slate-500">
-                  التفاصيل الكاملة وخطوات التثبيت عبر AltStore / Sideloadly / Android موثقة في ملف{' '}
-                  <code dir="ltr" className="inline-block font-mono">
-                    MOBILE_BUILD_GUIDE_AR.md
-                  </code>
-                  .
-                </p>
-              </div>
-
-              {/* Detected Public HTTPS / Server Addresses */}
-              {releases && releases.lanUrls.length > 0 && (
-                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 p-4 space-y-2 text-xs">
-                  <div className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-200">
-                    <Globe className="w-4 h-4 text-teal-600" />
-                    <span>عناوين الخادم المتاحة لربط تطبيقات الطلاب:</span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {releases.lanUrls.map((url) => (
-                      <button
-                        key={url}
-                        type="button"
-                        onClick={() => handleCopyText(url, 'عنوان الخادم')}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono text-xs hover:border-teal-500"
-                      >
-                        <Copy className="w-3.5 h-3.5 text-slate-400" />
-                        <span dir="ltr">{url}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          ) : (
-            /* Server Connection Settings Tab (for native APK/IPA apps) */
-            <form onSubmit={handleTestAndSaveServer} className="space-y-4 text-xs">
-              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-1.5">
-                <div className="flex items-center justify-between gap-2 font-bold text-slate-900 dark:text-slate-100">
-                  <div className="flex items-center gap-2">
-                    <Server className="w-4 h-4 text-teal-600" />
-                    <span>ربط تطبيق الهاتف بخادم الدفعة عبر الإنترنت (HTTPS)</span>
-                  </div>
-                  <span dir="ltr" className="font-mono text-[11px] text-slate-500">
-                    v{getAppVersion()}
-                  </span>
-                </div>
-                <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
-                  {bundledOrigin ? (
-                    <>
-                      هذا الإصدار من التطبيق مربوط تلقائياً بخادم الإنتاج الرسمي{' '}
-                      <code className="inline-block font-mono" dir="ltr">
-                        {bundledOrigin}
-                      </code>{' '}
-                      ويستخدم قاعدة البيانات المركزية نفسها عبر اتصال HTTPS مشفّر.
-                    </>
-                  ) : (
-                    <>
-                      عند تشغيل التطبيق من ملف <strong>APK</strong> أو <strong>IPA</strong> على هاتفك، أدخل رابط الاستضافة الآمن لخادم الدفعة عبر الإنترنت (مثل{' '}
-                      <code className="inline-block font-mono" dir="ltr">
-                        https://campus.dblab.site
-                      </code>
-                      ). اتركه فارغاً عند الاستخدام مباشرةً من المتصفح أو PWA.
-                    </>
+                    </a>
                   )}
+
+                  <a
+                    href={OFFICIAL_RELEASES_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex w-full items-center justify-center gap-1.5 py-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    عرض جميع الإصدارات الرسمية
+                  </a>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 p-5 flex flex-col justify-between gap-4">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                      مستخدمي iPhone
+                    </h3>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 dark:bg-sky-950/60 px-2.5 py-0.5 text-xs font-semibold text-sky-700 dark:text-sky-300">
+                      <Share2 className="h-3.5 w-3.5" />
+                      Safari
+                    </span>
+                  </div>
+                  <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                    للحصول على تجربة تطبيق كاملة على iPhone وiPad دون الحاجة إلى تثبيت خارجي:
+                  </p>
+                </div>
+
+                <ol className="space-y-2.5 text-sm text-slate-700 dark:text-slate-200">
+                  <li className="flex items-start gap-2.5">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-950/60 text-xs font-bold text-indigo-700 dark:text-indigo-300">
+                      1
+                    </span>
+                    <span>افتح المنصة باستخدام متصفح Safari.</span>
+                  </li>
+                  <li className="flex items-start gap-2.5">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-950/60 text-xs font-bold text-indigo-700 dark:text-indigo-300">
+                      2
+                    </span>
+                    <span>اضغط على أيقونة «مشاركة» في شريط المتصفح.</span>
+                  </li>
+                  <li className="flex items-start gap-2.5">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-950/60 text-xs font-bold text-indigo-700 dark:text-indigo-300">
+                      3
+                    </span>
+                    <span>اختر «مشاركة ← إضافة إلى الشاشة الرئيسية» ثم اضغط إضافة.</span>
+                  </li>
+                </ol>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'admin' && isRepresentative && (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/70 dark:bg-amber-950/20 px-4 py-3 text-xs text-amber-800 dark:text-amber-200">
+                هذا القسم مخصص لمندوب الدفعة لرفع حزم التطبيق على الخادم والتحقق من بصمات SHA-256.
+              </div>
+
+              {(['apk', 'ipa'] as const).map((platform) => {
+                const info = releases?.[platform];
+                const isApk = platform === 'apk';
+                const isUploading = uploadingPlatform === platform;
+                const isDeleting = deletingPlatform === platform;
+
+                return (
+                  <div
+                    key={platform}
+                    className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 p-4 space-y-3"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                          {isApk ? 'حزمة Android (APK)' : 'حزمة iOS (IPA)'}
+                        </h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          {info?.available
+                            ? `${info.fileName} • ${formatBytes(info.sizeBytes)}`
+                            : 'لا توجد حزمة مرفوعة على الخادم حالياً'}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-3 py-2 text-xs font-semibold text-white transition">
+                          <Upload className="h-3.5 w-3.5" />
+                          <span>{isUploading ? 'جارٍ الرفع...' : 'رفع حزمة'}</span>
+                          <input
+                            type="file"
+                            accept={isApk ? '.apk' : '.ipa'}
+                            disabled={isUploading}
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0] || null;
+                              void handleUploadPackage(platform, file);
+                              e.target.value = '';
+                            }}
+                          />
+                        </label>
+
+                        {info?.available && (
+                          <button
+                            type="button"
+                            disabled={isDeleting}
+                            onClick={() => void handleDeletePackage(platform)}
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-950/50 px-3 py-2 text-xs font-semibold text-rose-700 dark:text-rose-300 transition"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            <span>{isDeleting ? 'جارٍ الحذف...' : 'حذف'}</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {info?.available && info.sha256 && (
+                      <div className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2">
+                        <div className="min-w-0">
+                          <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                            SHA-256
+                          </span>
+                          <code className="block truncate text-xs text-slate-800 dark:text-slate-200" dir="ltr">
+                            {info.sha256}
+                          </code>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void handleCopyText(info.sha256 || '', 'تم نسخ بصمة SHA-256')}
+                          className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                          نسخ
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {activeTab === 'server' && canConfigureLanServer && (
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 p-5 space-y-4">
+              <div className="space-y-1">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  إعداد خادم الشبكة المحلية (للتطوير فقط)
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {isNativeApp
+                    ? 'أدخل عنوان خادم التطوير المحلي لاختبار التطبيق.'
+                    : 'هذا الإعداد متاح فقط في بيئة التطوير للمندوب.'}
                 </p>
               </div>
 
-              <div>
-                <label className="block font-semibold mb-1.5 text-slate-800 dark:text-slate-200">
-                  عنوان الخادم المركزي (HTTPS Server URL)
-                </label>
+              <div className="flex flex-col sm:flex-row gap-2">
                 <input
-                  type="text"
+                  type="url"
                   dir="ltr"
-                  value={serverUrlInput}
-                  readOnly={Boolean(bundledOrigin)}
-                  onChange={(e) => setServerUrlInput(e.target.value)}
-                  placeholder="https://campus.dblab.site"
-                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 font-mono text-xs"
+                  value={serverInput}
+                  onChange={(e) => setServerInput(e.target.value)}
+                  placeholder="أدخل رابط الخادم المحلي"
+                  className="flex-1 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
-              </div>
-
-              {serverCheckStatus && (
-                <div
-                  role="status"
-                  className={`p-3 rounded-lg border text-xs flex items-start gap-2 ${
-                    serverCheckStatus.ok
-                      ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
-                      : 'bg-rose-50 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-300'
-                  }`}
-                >
-                  {serverCheckStatus.ok && <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />}
-                  <span>{serverCheckStatus.message}</span>
-                </div>
-              )}
-
-              <div className="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-800">
                 <button
                   type="button"
-                  hidden={Boolean(bundledOrigin)}
-                  onClick={() => {
-                    saveServerBaseUrl('');
-                    setServerUrlInput('');
-                    setServerCheckStatus({
-                      ok: true,
-                      message: 'تمت إعادة الضبط للخادم الافتراضي.',
-                    });
-                  }}
-                  className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300"
-                >
-                  إعادة للوضع الافتراضي
-                </button>
-
-                <button
-                  type="submit"
                   disabled={testingServer}
-                  className="px-4 py-2 rounded-lg bg-teal-600 text-white font-bold hover:bg-teal-700 disabled:opacity-60"
+                  onClick={() => void handleSaveServerUrl()}
+                  className="rounded-xl bg-indigo-600 hover:bg-indigo-700 px-4 py-2.5 text-sm font-semibold text-white transition disabled:opacity-60"
                 >
-                  {testingServer ? 'جاري فحص الاتصال...' : bundledOrigin ? 'فحص الاتصال' : 'فحص الاتصال وحفظ الإعداد'}
+                  {testingServer ? 'جارٍ التحقق...' : 'حفظ واختبار'}
                 </button>
               </div>
-            </form>
+            </div>
           )}
         </div>
       </div>
     </div>
   );
-};
+} ;
+export default MobileAppsModal;

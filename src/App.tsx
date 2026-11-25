@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import {
   Bell,
   BookOpen,
@@ -36,9 +36,10 @@ import type {
   ScheduleConflict,
   UserAccount,
 } from './types';
-import { ROLE_LABELS_AR, apiFetch, getAuthToken, setAuthToken } from './utils/api';
+import { ROLE_LABELS_AR, apiFetch, getAuthToken, setAuthToken, persistAuthToken, restoreAndValidateSession } from './utils/api';
 import { hasPermission } from './utils/domainLogic';
-import { getSavedThemePreference, saveThemePreference } from './utils/nativeBridge';
+import { getSavedThemePreference, saveThemePreference, shouldHidePwaInstallUi } from './utils/nativeBridge';
+import { isNativeCapacitorApp } from './utils/mobileConfig';
 import { PWAInstallButton, OfflineIndicator } from './components/PWAInstallButton';
 import { MobileAppsModal } from './components/MobileAppsModal';
 import { DashboardView } from './components/DashboardView';
@@ -58,6 +59,7 @@ interface SearchResultItem {
 }
 
 export default function App() {
+ const sessionEpochRef = useRef(0);
   const [darkMode, setDarkMode] = useState<boolean>(() => getSavedThemePreference());
   const [user, setUser] = useState<UserAccount | null>(null);
   const [demoAccounts, setDemoAccounts] = useState<UserAccount[]>([]);
@@ -68,6 +70,7 @@ export default function App() {
   const [loading, setLoading] = useState<boolean>(true);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
+  const [offlineSessionPending, setOfflineSessionPending] = useState<boolean>(false);
   // Login form state
   const [loginIdentifier, setLoginIdentifier] = useState('rep@demo.dbl.local');
   const [loginPassword, setLoginPassword] = useState('Demo@2026');
@@ -185,7 +188,9 @@ export default function App() {
   }, [notify]);
 
   const switchSession = useCallback((token: string, nextUser: UserAccount | null) => {
+   sessionEpochRef.current += 1;
     setAuthToken(token);
+    void persistAuthToken(token);
     setCourses([]);
     setLectures([]);
     setConflicts([]);
@@ -202,19 +207,32 @@ export default function App() {
     setProfileCurrentPass('');
     setProfileNewPass('');
     setUser(nextUser);
+    setOfflineSessionPending(false);
   }, []);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const status = await apiFetch<{
+  const restoreSession = useCallback(async () => {
+   sessionEpochRef.current += 1;
+    try {
+        type AuthStatusResponse = {
           user: UserAccount | null;
           hasProductionRepresentative: boolean;
           requiresSetupPasscode: boolean;
           demoEnabled?: boolean;
           demoAccounts: UserAccount[];
-        }>('/api/auth/status');
-
+        };
+const myEpoch = sessionEpochRef.current;
+      const { status, offline, hasStoredToken , stale} = await restoreAndValidateSession(() =>
+        apiFetch<AuthStatusResponse>('/api/auth/status')
+      );
+      if (stale === true || sessionEpochRef.current !== myEpoch) { return; }
+      if (offline) {
+        if (hasStoredToken) {
+          setOfflineSessionPending(true);
+        }
+        return;
+      }
+      setOfflineSessionPending(false);
+      if (!status) return;
         const availableDemos = status.demoAccounts || [];
         setDemoAccounts(availableDemos);
         setHasProdRep(status.hasProductionRepresentative);
@@ -249,8 +267,22 @@ export default function App() {
       } finally {
         setLoading(false);
       }
-    })();
-  }, [loadAllCohortData, switchSession]);
+}, [loadAllCohortData, switchSession]);
+
+  useEffect(() => {
+    void restoreSession();
+  }, [restoreSession]);
+
+  useEffect(() => {
+    if (!offlineSessionPending) return;
+    const handleOnline = () => {
+      void restoreSession();
+    };
+    window.addEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [offlineSessionPending, restoreSession]);
 
   useEffect(() => {
     if (!user || !globalQuery.trim()) {
@@ -347,23 +379,29 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+   sessionEpochRef.current += 1;
     try {
       await apiFetch('/api/auth/logout', { method: 'POST' });
     } catch {
       // ignore
-    }
+    } finally {
+      await persistAuthToken('');
     switchSession('', null);
+    }
   };
 
   const handleLogoutAllSessions = async () => {
+   sessionEpochRef.current += 1;
     try {
       await apiFetch('/api/auth/logout-all', { method: 'POST' });
       notify('تم إنهاء جميع الجلسات النشطة لحسابك على كافة الأجهزة');
     } catch {
       // ignore
-    }
+    } finally {
+      await persistAuthToken('');
     setShowProfileModal(false);
     switchSession('', null);
+    }
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -420,6 +458,7 @@ export default function App() {
   // ==========================================
   // LOGIN & DEMO / FIRST-RUN SETUP SCREEN
   // ==========================================
+    const hidePwaInstallUi = shouldHidePwaInstallUi(isNativeCapacitorApp());
   if (!user) {
     return (
       <div className="min-h-screen flex flex-col justify-between bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
@@ -452,7 +491,7 @@ export default function App() {
               <span className="sm:hidden">تطبيق الهاتف</span>
             </button>
             <div className="hidden sm:block">
-              <PWAInstallButton />
+              {!hidePwaInstallUi && <PWAInstallButton />}
             </div>
             <button
               type="button"
@@ -472,7 +511,7 @@ export default function App() {
               منصة إدارة الدفعات الجامعية المركزية عبر الإنترنت (HTTPS Multi-User Platform)
             </p>
             <h1 className="text-3xl font-bold text-slate-900 dark:text-white leading-tight">
-              إدارة منظمة للدفعة الجامعية من أي مكان، دون أن يتحمل المندوب عبء كل شيء بمفرده.
+              إدارة منظمة للدفعة الجامعية من أي مكان.
             </h1>
             <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
               تتيح منصة <strong>DBL Campus</strong> لمندوب الدفعة ونائبه والمنسقين والطلاب الوصول المركزي الآمن عبر الإنترنت (HTTPS) من الهواتف والحواسيب إلى الجدول الدراسي، التكاليف، الطلبات الجماعية وكشوف التأييد الرسمية (A4)، ومكتبة المحاضرات وفق صلاحيات دقيقة.
@@ -487,7 +526,8 @@ export default function App() {
                   تصويت واحد لكل طالب، سحب التأييد قبل الإغلاق، منع تغيير النص جوهرياً دون إعادة تأكيد، وتصدير كشوف A4 تميز بين التأييد الإلكتروني والتوقيع اليدوي.
                 </span>
               </div>
-              <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+              {!hidePwaInstallUi && (
+        <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
                 <strong className="text-slate-900 dark:text-white block mb-1">
                   2. وصول سحابي آمن وتثبيت كتطبيق PWA
                 </strong>
@@ -495,6 +535,7 @@ export default function App() {
                   تعمل المنصة عبر HTTPS مع حماية الجلسات وفحص الملفات المرفوعة، وتدعم التثبيت المباشر على هواتف Android و iOS والوصول من أي شبكة.
                 </span>
               </div>
+            )}
             </div>
           </div>
 
@@ -691,7 +732,9 @@ export default function App() {
 
         <footer className="px-6 py-4 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 flex flex-wrap items-center justify-between gap-2">
           <span>DBL Campus — Student Cohort Management Platform</span>
-          <span>جاهز للاستضافة المركزية عبر الإنترنت (HTTPS) وتثبيت الهواتف (PWA / APK / IPA)</span>
+          {!hidePwaInstallUi && (
+         <span>جاهز للاستضافة المركزية عبر الإنترنت (HTTPS) وتثبيت الهواتف (PWA / APK / IPA)</span>
+      )}
         </footer>
 
         {showMobileAppsModal && (
@@ -925,7 +968,7 @@ export default function App() {
               <span>APK / IPA</span>
             </button>
             <div className="hidden md:block">
-              <PWAInstallButton />
+              {!hidePwaInstallUi && <PWAInstallButton />}
             </div>
 
             {/* Notification Center Button */}
@@ -1212,7 +1255,7 @@ export default function App() {
                 <Smartphone className="w-4 h-4 shrink-0" />
                 <span>تطبيق الهاتف (APK / IPA)</span>
               </button>
-              <PWAInstallButton />
+              {!hidePwaInstallUi && <PWAInstallButton />}
               <button
                 type="button"
                 onClick={handleLogout}

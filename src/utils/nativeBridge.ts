@@ -12,13 +12,22 @@ interface WebKitMessageHandler {
   postMessage: (payload: unknown) => void;
 }
 
+interface AndroidSecureSessionChannel {
+postMessage: (message: string) => void;
+onmessage?: ((event: MessageEvent) => void) | null;
+addEventListener?: (type: 'message', listener: (event: MessageEvent) => void) => void;
+removeEventListener?: (type: 'message', listener: (event: MessageEvent) => void) => void;
+}
+
 interface NativeBridgeWindow extends Window {
   DBLNativeBridge?: AndroidNativeBridge;
+DBLSecureSession?: AndroidSecureSessionChannel;
   webkit?: {
     messageHandlers?: {
       dblPrint?: WebKitMessageHandler;
       dblDownload?: WebKitMessageHandler;
       dblSaveFile?: WebKitMessageHandler;
+dblSecureStorage?: { postMessage: (payload: Record<string, unknown>) => Promise<unknown> };
     };
   };
 }
@@ -174,4 +183,132 @@ export async function exportBlobFile(
     URL.revokeObjectURL(url);
   }
   return 'web';
+}
+
+export const OFFICIAL_GITHUB_REPO = 'elias-mujally/DBL-Campus';
+export const OFFICIAL_RELEASES_URL = `https://github.com/${OFFICIAL_GITHUB_REPO}/releases/latest`;
+export const OFFICIAL_ANDROID_APK_URL = `https://github.com/${OFFICIAL_GITHUB_REPO}/releases/latest/download/DBL-Campus-Android.apk`;
+
+export function shouldHidePwaInstallUi(isNative: boolean): boolean {
+  return Boolean(isNative);
+}
+
+export function shouldAllowLanServerConfig(bundledOrigin: string, isProd: boolean): boolean {
+  return !bundledOrigin && !isProd;
+}
+
+async function callAndroidSecureSession(
+win: NativeBridgeWindow | null,
+action: 'set' | 'get' | 'clear',
+token?: string
+): Promise<{ ok: boolean; token?: string } | null> {
+const channel = win?.DBLSecureSession;
+if (!channel || typeof channel.postMessage !== 'function') {
+return null;
+}
+const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+return new Promise((resolve) => {
+let settled = false;
+const prevOnMessage = channel.onmessage ?? null;
+const cleanup = () => {
+clearTimeout(timer);
+if (typeof channel.removeEventListener === 'function') {
+channel.removeEventListener('message', onMessage);
+} else if (channel.onmessage === onMessage) {
+channel.onmessage = prevOnMessage;
+}
+};
+const onMessage = (event: MessageEvent) => {
+if (settled) return;
+try {
+const raw = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+if (!raw || raw.id !== id) return;
+settled = true;
+cleanup();
+resolve({
+ok: Boolean(raw.ok),
+token: typeof raw.token === 'string' ? raw.token : '',
+});
+} catch {
+}
+};
+const timer = setTimeout(() => {
+if (settled) return;
+settled = true;
+cleanup();
+resolve(null);
+}, 5000);
+if (typeof channel.addEventListener === 'function') {
+channel.addEventListener('message', onMessage);
+} else {
+channel.onmessage = onMessage;
+}
+try {
+const payload = token !== undefined ? { id, action, token } : { id, action };
+channel.postMessage(JSON.stringify(payload));
+} catch {
+if (!settled) {
+settled = true;
+cleanup();
+resolve(null);
+}
+}
+});
+}
+
+export async function saveNativeSessionToken(token: string): Promise<boolean> {
+  if (!token) {
+    return clearNativeSessionToken();
+  }
+  const win = getBridgeWindow();
+  try {
+  if (win?.DBLSecureSession && typeof win.DBLSecureSession.postMessage === 'function') {
+const res = await callAndroidSecureSession(win, 'set', token);
+return Boolean(res?.ok);
+  }
+    const iosStorage = win?.webkit?.messageHandlers?.dblSecureStorage;
+    if (iosStorage && typeof iosStorage.postMessage === 'function') {
+      const result = await iosStorage.postMessage({ action: 'set', token });
+      return result === undefined ? true : Boolean(result);
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+export async function loadNativeSessionToken(): Promise<string> {
+  const win = getBridgeWindow();
+  try {
+  if (win?.DBLSecureSession && typeof win.DBLSecureSession.postMessage === 'function') {
+const res = await callAndroidSecureSession(win, 'get');
+return res?.ok && typeof res.token === 'string' ? res.token : '';
+  }
+    const iosStorage = win?.webkit?.messageHandlers?.dblSecureStorage;
+    if (iosStorage && typeof iosStorage.postMessage === 'function') {
+      const result = await iosStorage.postMessage({ action: 'get' });
+      return typeof result === 'string' ? result : '';
+    }
+  } catch {
+    return '';
+  }
+  return '';
+}
+
+export async function clearNativeSessionToken(): Promise<boolean> {
+  const win = getBridgeWindow();
+  try {
+  if (win?.DBLSecureSession && typeof win.DBLSecureSession.postMessage === 'function') {
+const res = await callAndroidSecureSession(win, 'clear');
+return Boolean(res?.ok);
+  }
+    const iosStorage = win?.webkit?.messageHandlers?.dblSecureStorage;
+    if (iosStorage && typeof iosStorage.postMessage === 'function') {
+      const result = await iosStorage.postMessage({ action: 'clear' });
+      return result === undefined ? true : Boolean(result);
+    }
+  } catch {
+    return false;
+  }
+  return false;
 }

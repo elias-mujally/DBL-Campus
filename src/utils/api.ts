@@ -1,13 +1,100 @@
 import { getSavedServerBaseUrl, isNativeCapacitorApp, resolveApiUrl } from './mobileConfig';
+import { clearNativeSessionToken, loadNativeSessionToken, saveNativeSessionToken } from './nativeBridge';
+
+export class ApiError extends Error {
+  status: number;
+  isNetworkError: boolean;
+
+  constructor(message: string, status: number, isNetworkError = false) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.isNetworkError = isNetworkError;
+  }
+}
 
 let authTokenMemory = '';
+let tokenMutationSeq = 0;
+let tokenOperationChain: Promise<void> = Promise.resolve();
 
 export function setAuthToken(token: string): void {
+  tokenMutationSeq += 1;
   authTokenMemory = token;
 }
 
 export function getAuthToken(): string {
   return authTokenMemory;
+}
+
+function enqueueTokenOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const result = tokenOperationChain.then(operation, operation);
+  tokenOperationChain = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+export function persistAuthToken(token: string): Promise<void> {
+  const mutationSeq = ++tokenMutationSeq;
+  authTokenMemory = token;
+  return enqueueTokenOperation(async () => {
+    if (mutationSeq !== tokenMutationSeq) {
+      return;
+    }
+    if (!token) {
+      await clearNativeSessionToken();
+      return;
+    }
+    await saveNativeSessionToken(token);
+  });
+}
+
+export function restorePersistedAuthToken(): Promise<string> {
+  const startSeq = tokenMutationSeq;
+  return enqueueTokenOperation(async () => {
+    if (startSeq !== tokenMutationSeq) {
+      return authTokenMemory;
+    }
+    const token = await loadNativeSessionToken();
+    if (startSeq !== tokenMutationSeq) {
+      return authTokenMemory;
+    }
+    if (token) {
+      authTokenMemory = token;
+    }
+    return token;
+  });
+}
+
+export async function restoreAndValidateSession<T extends { user: unknown | null }>(
+  fetchStatus: () => Promise<T>,
+): Promise<{ status: T | null; offline: boolean; hasStoredToken: boolean; stale?: boolean }> {
+  const token = await restorePersistedAuthToken();
+  const afterRestoreSeq = tokenMutationSeq;
+  try {
+    const status = await fetchStatus();
+    if (tokenMutationSeq !== afterRestoreSeq) {
+       return { status: null, offline: false, stale: true, hasStoredToken: Boolean(authTokenMemory) };
+    }
+    if (status.user === null) {
+      await persistAuthToken('');
+      return { status, offline: false, hasStoredToken: false };
+    }
+    return { status, offline: false, hasStoredToken: Boolean(token) };
+  } catch (err) {
+    if (tokenMutationSeq !== afterRestoreSeq) {
+       return { status: null, offline: false, stale: true, hasStoredToken: Boolean(authTokenMemory) };
+    }
+    if (err instanceof ApiError && err.isNetworkError) {
+      return { status: null, offline: true, hasStoredToken: Boolean(token) };
+    }
+    if (err instanceof ApiError && err.status === 401) {
+      await persistAuthToken('');
+      return { status: null, offline: false, hasStoredToken: false };
+    }
+    throw err;
+  }
 }
 
 export function buildApiUrl(path: string): string {
@@ -28,18 +115,24 @@ export async function apiFetch<T>(
   if (authTokenMemory) {
     headers.Authorization = `Bearer ${authTokenMemory}`;
   }
-
-  const res = await fetch(buildApiUrl(path), {
-    ...options,
-    headers,
-  });
+  let res: Response;
+  try {
+    res = await fetch(buildApiUrl(path), {
+      ...options,
+      headers,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Network error';
+    throw new ApiError(msg || 'Network error', 0, true);
+  }
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.error || `خطأ في الاتصال بالخادم (${res.status})`);
+    throw new ApiError(data.error || `Request failed (${res.status})`, res.status, false);
   }
   return data as T;
 }
+
 
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
