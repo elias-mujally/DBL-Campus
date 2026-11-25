@@ -26,7 +26,7 @@ finish() {
   if [[ $result != 0 ]]; then
     tail -120 "$log" >&2
     "$adb" devices -l >&2 || true
-    if [[ -f "${server_log:-}" ]]; then echo "=== e2e-server.log ===" >&2; tail -120 "$server_log" >&2 || true; fi
+    if [[ -f "${server_log:-}" ]]; then echo "=== e2e-server.log ===" >&2; cat "$server_log" >&2 || true; fi
   fi
   kill "$emulator" 2>/dev/null || true
 if   [[ -n "${server_pid:-}" ]]; then
@@ -67,7 +67,7 @@ if [[ "$apk" == *debug* || "$apk" == *test* ]]; then
   "$adb" uninstall edu.dbl.campus || true
   db_path="${RUNNER_TEMP:-/tmp}/e2e-isolated-campus.sqlite"
   rm -f "$db_path" "${db_path}-wal" "${db_path}-shm"
-  PORT=3999 NODE_ENV=test DBL_ALLOW_DEMO=true DBL_FORCE_HTTPS=false \
+  PORT=3999 NODE_ENV=development DBL_ALLOW_DEMO=true DBL_FORCE_HTTPS=false \
     DISABLE_HMR=true DBL_DB_PATH="$db_path" \
     DBL_SESSION_SECRET="e2e-isolated-test-session-secret-0123456789abcdef" \
     node --import tsx server.ts >"$server_log" 2>&1 &
