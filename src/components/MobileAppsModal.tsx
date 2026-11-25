@@ -49,7 +49,7 @@ interface MobileAppsModalProps {
 
 type ModalTab = 'download' | 'admin' | 'server';
 
-export default function MobileAppsModal({ user, onClose, notify }: MobileAppsModalProps) {
+export const MobileAppsModal = ({ user, onClose, notify }: MobileAppsModalProps) => {
   const isRepresentative = user?.role === 'representative';
   const isNativeApp = isNativeCapacitorApp();
   const bundledOrigin = getBundledServerOrigin();
@@ -157,7 +157,7 @@ export default function MobileAppsModal({ user, onClose, notify }: MobileAppsMod
     if (!canConfigureLanServer) return;
     const validation = validateServerBaseUrl(serverInput);
     if (!validation.valid) {
-      notify(validation.error || 'عنوان الخادم غير صالح', 'error');
+      notify(validation.errorAr || 'عنوان الخادم غير صالح', 'error');
       return;
     }
 
@@ -475,4 +475,5 @@ export default function MobileAppsModal({ user, onClose, notify }: MobileAppsMod
       </div>
     </div>
   );
-} 
+} ;
+export default MobileAppsModal;
