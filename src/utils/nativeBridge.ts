@@ -6,17 +6,22 @@ interface AndroidNativeBridge {
   printDocument?: (title: string) => void;
   downloadFile?: (url: string, fileName: string) => void;
   saveBase64File?: (fileName: string, mimeType: string, base64Data: string) => void;
-    saveSessionToken?(token: string): boolean;
-    getSessionToken?(): string;
-    clearSessionToken?(): boolean;
 }
 
 interface WebKitMessageHandler {
   postMessage: (payload: unknown) => void;
 }
 
+interface AndroidSecureSessionChannel {
+postMessage: (message: string) => void;
+onmessage?: ((event: MessageEvent) => void) | null;
+addEventListener?: (type: 'message', listener: (event: MessageEvent) => void) => void;
+removeEventListener?: (type: 'message', listener: (event: MessageEvent) => void) => void;
+}
+
 interface NativeBridgeWindow extends Window {
   DBLNativeBridge?: AndroidNativeBridge;
+DBLSecureSession?: AndroidSecureSessionChannel;
   webkit?: {
     messageHandlers?: {
       dblPrint?: WebKitMessageHandler;
@@ -192,15 +197,75 @@ export function shouldAllowLanServerConfig(bundledOrigin: string, isProd: boolea
   return !bundledOrigin && !isProd;
 }
 
+async function callAndroidSecureSession(
+win: NativeBridgeWindow | null,
+action: 'set' | 'get' | 'clear',
+token?: string
+): Promise<{ ok: boolean; token?: string } | null> {
+const channel = win?.DBLSecureSession;
+if (!channel || typeof channel.postMessage !== 'function') {
+return null;
+}
+const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+return new Promise((resolve) => {
+let settled = false;
+const prevOnMessage = channel.onmessage ?? null;
+const cleanup = () => {
+clearTimeout(timer);
+if (typeof channel.removeEventListener === 'function') {
+channel.removeEventListener('message', onMessage);
+} else if (channel.onmessage === onMessage) {
+channel.onmessage = prevOnMessage;
+}
+};
+const onMessage = (event: MessageEvent) => {
+if (settled) return;
+try {
+const raw = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+if (!raw || raw.id !== id) return;
+settled = true;
+cleanup();
+resolve({
+ok: Boolean(raw.ok),
+token: typeof raw.token === 'string' ? raw.token : '',
+});
+} catch {
+}
+};
+const timer = setTimeout(() => {
+if (settled) return;
+settled = true;
+cleanup();
+resolve(null);
+}, 5000);
+if (typeof channel.addEventListener === 'function') {
+channel.addEventListener('message', onMessage);
+} else {
+channel.onmessage = onMessage;
+}
+try {
+const payload = token !== undefined ? { id, action, token } : { id, action };
+channel.postMessage(JSON.stringify(payload));
+} catch {
+if (!settled) {
+settled = true;
+cleanup();
+resolve(null);
+}
+}
+});
+}
+
 export async function saveNativeSessionToken(token: string): Promise<boolean> {
   if (!token) {
     return clearNativeSessionToken();
   }
   const win = getBridgeWindow();
   try {
-    if (win?.DBLNativeBridge && typeof win.DBLNativeBridge.saveSessionToken === 'function') {
-      return Boolean(win.DBLNativeBridge.saveSessionToken(token));
-    }
+  if (win?.DBLSecureSession && typeof win.DBLSecureSession.postMessage === 'function') {
+const res = await callAndroidSecureSession(win, 'set', token);
+return Boolean(res?.ok);
+  }
     const iosStorage = win?.webkit?.messageHandlers?.dblSecureStorage;
     if (iosStorage && typeof iosStorage.postMessage === 'function') {
       const result = await iosStorage.postMessage({ action: 'set', token });
@@ -215,10 +280,10 @@ export async function saveNativeSessionToken(token: string): Promise<boolean> {
 export async function loadNativeSessionToken(): Promise<string> {
   const win = getBridgeWindow();
   try {
-    if (win?.DBLNativeBridge && typeof win.DBLNativeBridge.getSessionToken === 'function') {
-      const token = win.DBLNativeBridge.getSessionToken();
-      return typeof token === 'string' ? token : '';
-    }
+  if (win?.DBLSecureSession && typeof win.DBLSecureSession.postMessage === 'function') {
+const res = await callAndroidSecureSession(win, 'get');
+return res?.ok && typeof res.token === 'string' ? res.token : '';
+  }
     const iosStorage = win?.webkit?.messageHandlers?.dblSecureStorage;
     if (iosStorage && typeof iosStorage.postMessage === 'function') {
       const result = await iosStorage.postMessage({ action: 'get' });
@@ -233,9 +298,10 @@ export async function loadNativeSessionToken(): Promise<string> {
 export async function clearNativeSessionToken(): Promise<boolean> {
   const win = getBridgeWindow();
   try {
-    if (win?.DBLNativeBridge && typeof win.DBLNativeBridge.clearSessionToken === 'function') {
-      return Boolean(win.DBLNativeBridge.clearSessionToken());
-    }
+  if (win?.DBLSecureSession && typeof win.DBLSecureSession.postMessage === 'function') {
+const res = await callAndroidSecureSession(win, 'clear');
+return Boolean(res?.ok);
+  }
     const iosStorage = win?.webkit?.messageHandlers?.dblSecureStorage;
     if (iosStorage && typeof iosStorage.postMessage === 'function') {
       const result = await iosStorage.postMessage({ action: 'clear' });
