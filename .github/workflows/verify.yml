@@ -30,6 +30,12 @@ jobs:
       - run: pip install playwright==1.62.0 pypdf==6.21.4
       - run: playwright install --with-deps chromium
       - run: python tests/print_pwa.py
+      - run: python tests/aurora-visual-audit.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aurora-visual-screenshots
+          path: aurora-screenshots/
       - run: npm run build -- --mode native-test
         env:
           DBL_NATIVE_SERVER_URL: https://campus.example.net
