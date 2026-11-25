@@ -69,6 +69,7 @@ export default function App() {
   const [loading, setLoading] = useState<boolean>(true);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
+  const [offlineSessionPending, setOfflineSessionPending] = useState<boolean>(false);
   // Login form state
   const [loginIdentifier, setLoginIdentifier] = useState('rep@demo.dbl.local');
   const [loginPassword, setLoginPassword] = useState('Demo@2026');
@@ -204,10 +205,10 @@ export default function App() {
     setProfileCurrentPass('');
     setProfileNewPass('');
     setUser(nextUser);
+    setOfflineSessionPending(false);
   }, []);
 
-  useEffect(() => {
-    (async () => {
+  const restoreSession = useCallback(async () => {
       try {
         type AuthStatusResponse = {
           user: UserAccount | null;
@@ -216,8 +217,17 @@ export default function App() {
           demoEnabled?: boolean;
           demoAccounts: UserAccount[];
         };
-        const { status, offline } = await restoreAndValidateSession(() => apiFetch<AuthStatusResponse>('/api/auth/status'));
-        if (offline || !status) return;
+const { status, offline, hasStoredToken } = await restoreAndValidateSession(() =>
+        apiFetch<AuthStatusResponse>('/api/auth/status')
+      );
+      if (offline) {
+        if (hasStoredToken) {
+          setOfflineSessionPending(true);
+        }
+        return;
+      }
+      setOfflineSessionPending(false);
+      if (!status) return;
         const availableDemos = status.demoAccounts || [];
         setDemoAccounts(availableDemos);
         setHasProdRep(status.hasProductionRepresentative);
@@ -252,8 +262,22 @@ export default function App() {
       } finally {
         setLoading(false);
       }
-    })();
-  }, [loadAllCohortData, switchSession]);
+}, [loadAllCohortData, switchSession]);
+
+  useEffect(() => {
+    void restoreSession();
+  }, [restoreSession]);
+
+  useEffect(() => {
+    if (!offlineSessionPending) return;
+    const handleOnline = () => {
+      void restoreSession();
+    };
+    window.addEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [offlineSessionPending, restoreSession]);
 
   useEffect(() => {
     if (!user || !globalQuery.trim()) {
