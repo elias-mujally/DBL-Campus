@@ -280,7 +280,7 @@ def main() -> None:
                     page.screenshot(path=str(SCREENSHOT_DIR / "06-dashboard-dark-mobile.png"), full_page=True)
                     audit_live_dom_contrast(page, "06-dashboard-dark-mobile")
                     ctx_desktop.close()
-                run_v130_responsive_and_motion_audit(browser)
+                    run_v130_responsive_and_motion_audit(browser)
                 finally:
                     browser.close()
         finally:
