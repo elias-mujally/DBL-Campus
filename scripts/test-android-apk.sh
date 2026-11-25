@@ -59,5 +59,5 @@ fi
 if [[ "$apk" == *debug* || "$apk" == *test* ]]; then
   export ANDROID_SERIAL=emulator-5554
   "$adb" uninstall edu.dbl.campus || true
-  (cd android && bash gradlew connectedDebugAndroidTest)
+  (cd android && bash gradlew :app:connectedDebugAndroidTest)
 fi
