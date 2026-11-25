@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import {
   Bell,
   BookOpen,
@@ -59,6 +59,7 @@ interface SearchResultItem {
 }
 
 export default function App() {
+ const sessionEpochRef = useRef(0);
   const [darkMode, setDarkMode] = useState<boolean>(() => getSavedThemePreference());
   const [user, setUser] = useState<UserAccount | null>(null);
   const [demoAccounts, setDemoAccounts] = useState<UserAccount[]>([]);
@@ -187,6 +188,7 @@ export default function App() {
   }, [notify]);
 
   const switchSession = useCallback((token: string, nextUser: UserAccount | null) => {
+   sessionEpochRef.current += 1;
     setAuthToken(token);
     void persistAuthToken(token);
     setCourses([]);
@@ -209,7 +211,8 @@ export default function App() {
   }, []);
 
   const restoreSession = useCallback(async () => {
-      try {
+   sessionEpochRef.current += 1;
+    try {
         type AuthStatusResponse = {
           user: UserAccount | null;
           hasProductionRepresentative: boolean;
@@ -217,9 +220,11 @@ export default function App() {
           demoEnabled?: boolean;
           demoAccounts: UserAccount[];
         };
-const { status, offline, hasStoredToken } = await restoreAndValidateSession(() =>
+const myEpoch = sessionEpochRef.current;
+      const { status, offline, hasStoredToken , stale} = await restoreAndValidateSession(() =>
         apiFetch<AuthStatusResponse>('/api/auth/status')
       );
+      if (stale === true || sessionEpochRef.current !== myEpoch) { return; }
       if (offline) {
         if (hasStoredToken) {
           setOfflineSessionPending(true);
@@ -374,6 +379,7 @@ const { status, offline, hasStoredToken } = await restoreAndValidateSession(() =
   };
 
   const handleLogout = async () => {
+   sessionEpochRef.current += 1;
     try {
       await apiFetch('/api/auth/logout', { method: 'POST' });
     } catch {
@@ -385,6 +391,7 @@ const { status, offline, hasStoredToken } = await restoreAndValidateSession(() =
   };
 
   const handleLogoutAllSessions = async () => {
+   sessionEpochRef.current += 1;
     try {
       await apiFetch('/api/auth/logout-all', { method: 'POST' });
       notify('تم إنهاء جميع الجلسات النشطة لحسابك على كافة الأجهزة');
