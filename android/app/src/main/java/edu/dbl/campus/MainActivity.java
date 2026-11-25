@@ -18,6 +18,13 @@ import android.webkit.URLUtil;
 import android.webkit.WebView;
 import android.widget.Toast;
 import androidx.activity.OnBackPressedCallback;
+import androidx.webkit.JavaScriptReplyProxy;
+import androidx.webkit.WebMessageCompat;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
+import java.util.Arrays;
+import java.util.HashSet;
+import org.json.JSONObject;
 import com.getcapacitor.BridgeActivity;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -54,6 +61,9 @@ public class MainActivity extends BridgeActivity {
         WebView webView = getBridge() != null ? getBridge().getWebView() : null;
         if (webView != null) {
             webView.addJavascriptInterface(new DBLNativeBridge(webView), "DBLNativeBridge");
+if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+registerSecureSessionListener(webView);
+}
             webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
                 String guessedName = URLUtil.guessFileName(url, contentDisposition, mimeType);
                 enqueueSecureDownload(url, guessedName, mimeType);
@@ -83,6 +93,64 @@ public class MainActivity extends BridgeActivity {
             }
         });
     }
+
+private void registerSecureSessionListener(WebView webView) {
+WebViewCompat.addWebMessageListener(
+webView,
+"DBLSecureSession",
+new HashSet<>(Arrays.asList("https://localhost", "capacitor://localhost")),
+(view, message, sourceOrigin, isMainFrame, replyProxy) -> {
+String id = "";
+try {
+String rawData = message != null ? message.getData() : null;
+JSONObject payload = rawData != null && !rawData.isEmpty() ? new JSONObject(rawData) : new JSONObject();
+id = payload.optString("id", "");
+String originStr = sourceOrigin != null ? sourceOrigin.toString() : "";
+boolean trustedOrigin = "https://localhost".equals(originStr) || "capacitor://localhost".equals(originStr);
+if (!isMainFrame || !trustedOrigin) {
+JSONObject err = new JSONObject();
+err.put("id", id);
+err.put("ok", false);
+err.put("error", "Untrusted frame or origin");
+replyProxy.postMessage(err.toString());
+return;
+}
+String action = payload.optString("action", "");
+JSONObject res = new JSONObject();
+res.put("id", id);
+if ("set".equals(action)) {
+String token = payload.optString("token", "");
+if (!token.isEmpty()) {
+encryptAndStoreSessionToken(token);
+} else {
+clearStoredSessionToken();
+}
+res.put("ok", true);
+} else if ("get".equals(action)) {
+String token = decryptSessionToken();
+res.put("ok", true);
+res.put("token", token != null ? token : "");
+} else if ("clear".equals(action)) {
+clearStoredSessionToken();
+res.put("ok", true);
+} else {
+res.put("ok", false);
+res.put("error", "Unsupported action");
+}
+replyProxy.postMessage(res.toString());
+} catch (Exception e) {
+try {
+JSONObject err = new JSONObject();
+err.put("id", id);
+err.put("ok", false);
+err.put("error", "Invalid message");
+replyProxy.postMessage(err.toString());
+} catch (Exception ignored) {
+}
+}
+}
+);
+}
 
     private String sanitizeFileName(String rawName, String fallback) {
         if (rawName == null) {
@@ -327,28 +395,5 @@ public class MainActivity extends BridgeActivity {
                 || url.startsWith("capacitor://localhost:");
         }
 
-        @JavascriptInterface
-        public boolean saveSessionToken(String token) {
-            if (!isTrustedLocalOrigin()) {
-                return false;
-            }
-            return encryptAndStoreSessionToken(token);
-        }
-
-        @JavascriptInterface
-        public String getSessionToken() {
-            if (!isTrustedLocalOrigin()) {
-                return null;
-            }
-            return decryptSessionToken();
-        }
-
-        @JavascriptInterface
-        public boolean clearSessionToken() {
-            if (!isTrustedLocalOrigin()) {
-                return false;
-            }
-            return clearStoredSessionToken();
-        }
     }
 }
