@@ -88,6 +88,23 @@
   --aurora-disabled-opacity: 0.55;
   --aurora-disabled-bg: #E5E3F4;
   --aurora-disabled-text: #6E6B8F;
+
+  /* On-Dark Chrome & Hero Surfaces */
+  --aurora-on-dark-text: #FFFFFF;
+  --aurora-on-dark-text-secondary: #DCD9F7;
+  --aurora-on-dark-text-muted: #C7C4EC;
+  --aurora-on-dark-icon: #F1F0FB;
+  --aurora-on-dark-icon-inactive: #C4C0EA;
+  --aurora-on-dark-icon-active: #5EEAD4;
+  --aurora-on-dark-surface: rgba(18, 17, 38, 0.44);
+  --aurora-on-dark-surface-hover: rgba(18, 17, 38, 0.62);
+  --aurora-on-dark-surface-active: rgba(99, 91, 219, 0.36);
+  --aurora-on-dark-border: rgba(255, 255, 255, 0.24);
+  --aurora-on-dark-border-strong: rgba(255, 255, 255, 0.40);
+  --aurora-on-dark-disabled: rgba(232, 230, 252, 0.50);
+  --aurora-text-on-chrome: var(--aurora-on-dark-text);
+  --aurora-text-on-chrome-muted: var(--aurora-on-dark-text-muted);
+  --aurora-chrome-border: var(--aurora-on-dark-border);
 }
 
 .dark {
@@ -132,6 +149,28 @@
   --aurora-active-overlay: rgba(165, 159, 247, 0.18);
   --aurora-disabled-bg: rgba(165, 159, 247, 0.08);
   --aurora-disabled-text: #7F7CA8;
+
+  /* On-Dark Chrome & Hero Surfaces */
+  --aurora-on-dark-text: #FFFFFF;
+  --aurora-on-dark-text-secondary: #DCD9F7;
+  --aurora-on-dark-text-muted: #C7C4EC;
+  --aurora-on-dark-icon: #F1F0FB;
+  --aurora-on-dark-icon-inactive: #C4C0EA;
+  --aurora-on-dark-icon-active: #5EEAD4;
+  --aurora-on-dark-surface: rgba(18, 17, 38, 0.44);
+  --aurora-on-dark-surface-hover: rgba(18, 17, 38, 0.62);
+  --aurora-on-dark-surface-active: rgba(99, 91, 219, 0.36);
+  --aurora-on-dark-border: rgba(255, 255, 255, 0.24);
+  --aurora-on-dark-border-strong: rgba(255, 255, 255, 0.40);
+  --aurora-on-dark-disabled: rgba(232, 230, 252, 0.50);
+  --aurora-text-on-chrome: var(--aurora-on-dark-text);
+  --aurora-text-on-chrome-muted: var(--aurora-on-dark-text-muted);
+  --aurora-chrome-border: var(--aurora-on-dark-border);
+
+  /* WCAG AA Dark Mode Secondary Text Boost */
+  --color-slate-400: #BDBAE0;
+  --color-slate-500: #ABA7D4;
+  --aurora-text-muted: #BDBAE0;
 }
 @theme {
   --color-slate-50: #EEEDF8;

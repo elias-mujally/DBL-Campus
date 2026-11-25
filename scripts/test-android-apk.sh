@@ -62,6 +62,14 @@ if "${device[@]}" logcat -d | grep -q "FATAL EXCEPTION"; then
   "${device[@]}" logcat -d >&2
   exit 1
 fi
+mkdir -p artifacts
+"${device[@]}" shell cmd uimode night no
+sleep 2
+"${device[@]}" exec-out screencap -p > artifacts/android-emulator-light.png
+"${device[@]}" shell cmd uimode night yes
+sleep 2
+"${device[@]}" exec-out screencap -p > artifacts/android-emulator-dark.png
+"${device[@]}" shell cmd uimode night no
 if [[ "$apk" == *debug* || "$apk" == *test* ]]; then
   export ANDROID_SERIAL=emulator-5554
   "$adb" uninstall edu.dbl.campus || true
