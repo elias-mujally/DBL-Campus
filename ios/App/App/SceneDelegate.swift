@@ -36,6 +36,7 @@ final class DBLBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
     private static let secureStorageMessageName = "dblSecureStorage"
     private static let keychainService = "edu.dbl.campus.session"
     private static let keychainAccount = "auth_token"
+    private static let sessionQueue = DispatchQueue(label: "edu.dbl.campus.session.queue")
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -64,23 +65,65 @@ final class DBLBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
             replyHandler(nil, "Unsupported message")
             return
         }
+        let origin = message.frameInfo.securityOrigin
+        let isTrustedOrigin = message.frameInfo.isMainFrame
+            && origin.host == "localhost"
+            && (origin.`protocol` == "capacitor" || origin.`protocol` == "https")
+        guard isTrustedOrigin else {
+            replyHandler(nil, "Untrusted origin")
+            return
+        }
         guard let body = message.body as? [String: Any],
               let action = (body["action"] as? String)?.lowercased() else {
             replyHandler(nil, "Invalid secure storage payload")
             return
         }
         switch action {
-        case "get":
-            replyHandler(readKeychainSessionToken(), nil)
+       case "get":
+            Self.sessionQueue.async { [weak self] in
+                guard let self = self else {
+                    DispatchQueue.main.async {
+                        replyHandler(nil, "Bridge unavailable")
+                    }
+                    return
+                }
+                let token = self.readKeychainSessionToken()
+                DispatchQueue.main.async {
+                    replyHandler(token, nil)
+                }
+            }
         case "set":
             let token = body["token"] as? String ?? body["value"] as? String ?? ""
-            if token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                replyHandler(clearKeychainSessionToken(), nil)
-            } else {
-                replyHandler(saveKeychainSessionToken(token), nil)
+            Self.sessionQueue.async { [weak self] in
+                guard let self = self else {
+                    DispatchQueue.main.async {
+                        replyHandler(nil, "Bridge unavailable")
+                    }
+                    return
+                }
+                let success: Bool
+                if token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    success = self.clearKeychainSessionToken()
+                } else {
+                    success = self.saveKeychainSessionToken(token)
+                }
+                DispatchQueue.main.async {
+                    replyHandler(success, nil)
+                }
             }
         case "clear":
-            replyHandler(clearKeychainSessionToken(), nil)
+            Self.sessionQueue.async { [weak self] in
+                guard let self = self else {
+                    DispatchQueue.main.async {
+                        replyHandler(nil, "Bridge unavailable")
+                    }
+                    return
+                }
+                let success = self.clearKeychainSessionToken()
+                DispatchQueue.main.async {
+                    replyHandler(success, nil)
+                }
+            }
         default:
             replyHandler(nil, "Unsupported secure storage action")
         }
