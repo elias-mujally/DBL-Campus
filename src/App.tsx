@@ -461,7 +461,7 @@ const myEpoch = sessionEpochRef.current;
     const hidePwaInstallUi = shouldHidePwaInstallUi(isNativeCapacitorApp());
   if (!user) {
     return (
-      <div className="min-h-screen flex flex-col justify-between bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
+      <div className="min-h-screen flex flex-col justify-between bg-[var(--aurora-bg)] text-[var(--aurora-text-primary)] overflow-x-hidden aurora-wrap">
         <OfflineIndicator />
         {toast && (
           <div
@@ -474,7 +474,7 @@ const myEpoch = sessionEpochRef.current;
           </div>
         )}
 
-        <header className="safe-top flex items-center justify-between gap-2 sm:gap-6 px-3 sm:px-6 py-3 sm:py-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+        <header className="safe-top flex items-center justify-between gap-2 sm:gap-6 px-3 sm:px-6 py-3 sm:py-4 border-b border-[var(--aurora-chrome-border)] bg-[var(--aurora-chrome)] text-[var(--aurora-text-on-chrome)]">
           <div className="flex items-center gap-2 whitespace-nowrap shrink-0">
             <GraduationCap className="w-6 h-6 text-teal-600 shrink-0" />
             <span className="text-base sm:text-lg font-bold tracking-tight">DBL Campus</span>
@@ -497,7 +497,7 @@ const myEpoch = sessionEpochRef.current;
               type="button"
               onClick={() => setDarkMode(!darkMode)}
               aria-label="تبديل الوضع الليلي والنهاري"
-              className="p-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
+              className="p-2 rounded-lg border border-[var(--aurora-chrome-border)] text-[var(--aurora-text-on-chrome)] hover:bg-white/10 shrink-0"
             >
               {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
@@ -506,19 +506,19 @@ const myEpoch = sessionEpochRef.current;
 
         <main className="max-w-5xl w-full mx-auto px-4 py-6 sm:py-10 grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-8 items-start">
           {/* Right Introductory Column */}
-          <div className="order-2 lg:order-1 lg:col-span-6 space-y-5">
-            <p className="text-xs font-bold text-teal-700 dark:text-teal-400">
+          <div className="order-2 lg:order-1 lg:col-span-6 space-y-3"><div className="aurora-hero rounded-2xl p-5 sm:p-6 text-white space-y-2.5 shadow-sm" style={{ background: 'var(--aurora-hero-gradient)' }}">
+            <p className="text-xs font-bold text-teal-300">
               منصة إدارة الدفعات الجامعية المركزية عبر الإنترنت (HTTPS Multi-User Platform)
             </p>
-            <h1 className="text-3xl font-bold text-slate-900 dark:text-white leading-tight">
+            <h1 className="text-2xl sm:text-3xl font-bold text-white leading-tight break-words">
               إدارة منظمة للدفعة الجامعية من أي مكان.
             </h1>
-            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+            <p className="text-sm text-white/85 leading-relaxed break-words">
               تتيح منصة <strong>DBL Campus</strong> لمندوب الدفعة ونائبه والمنسقين والطلاب الوصول المركزي الآمن عبر الإنترنت (HTTPS) من الهواتف والحواسيب إلى الجدول الدراسي، التكاليف، الطلبات الجماعية وكشوف التأييد الرسمية (A4)، ومكتبة المحاضرات وفق صلاحيات دقيقة.
             </p>
 
-            <div className="space-y-3 pt-2 text-xs text-slate-700 dark:text-slate-300">
-              <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+            </div><div className="space-y-2.5 text-xs text-[var(--aurora-text-secondary)]">
+              <div className="p-3.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface)]">
                 <strong className="text-slate-900 dark:text-white block mb-1">
                   1. نظام طلبات وتأييد طلابي نزيه وموثق
                 </strong>
@@ -527,7 +527,7 @@ const myEpoch = sessionEpochRef.current;
                 </span>
               </div>
               {!hidePwaInstallUi && (
-        <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+        <div className="p-3.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface)]">
                 <strong className="text-slate-900 dark:text-white block mb-1">
                   2. وصول سحابي آمن وتثبيت كتطبيق PWA
                 </strong>
@@ -540,15 +540,15 @@ const myEpoch = sessionEpochRef.current;
           </div>
 
           {/* Left Authentication & Demo Switcher Card */}
-          <div className="order-1 lg:order-2 lg:col-span-6 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6 shadow-sm">
-            <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg mb-5">
+          <div className="order-1 lg:order-2 lg:col-span-6 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface)] p-5 sm:p-6 shadow-sm">
+            <div className="flex items-center gap-1 p-1 bg-[var(--aurora-surface-2)] rounded-lg mb-5">
               {demoAccounts.length > 0 && (
                 <button
                   type="button"
                   onClick={() => setAuthTab('demo')}
                   className={`flex-1 py-2 text-xs font-bold rounded-md transition-colors ${
                     authTab === 'demo'
-                      ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
+                      ? 'bg-[var(--aurora-surface)] text-slate-900 dark:text-white shadow-sm'
                       : 'text-slate-600 dark:text-slate-400'
                   }`}
                 >
@@ -560,7 +560,7 @@ const myEpoch = sessionEpochRef.current;
                 onClick={() => setAuthTab('login')}
                 className={`flex-1 py-2 text-xs font-bold rounded-md transition-colors ${
                   authTab === 'login'
-                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
+                    ? 'bg-[var(--aurora-surface)] text-slate-900 dark:text-white shadow-sm'
                     : 'text-slate-600 dark:text-slate-400'
                 }`}
               >
@@ -572,7 +572,7 @@ const myEpoch = sessionEpochRef.current;
                   onClick={() => setAuthTab('setup')}
                   className={`flex-1 py-2 text-xs font-bold rounded-md transition-colors ${
                     authTab === 'setup'
-                      ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
+                      ? 'bg-[var(--aurora-surface)] text-slate-900 dark:text-white shadow-sm'
                       : 'text-slate-600 dark:text-slate-400'
                   }`}
                 >
@@ -593,7 +593,7 @@ const myEpoch = sessionEpochRef.current;
                       key={acc.id}
                       type="button"
                       onClick={() => handleQuickDemoSwitch(acc.id)}
-                      className="w-full text-right p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-teal-500 dark:hover:border-teal-500 hover:bg-teal-50/30 dark:hover:bg-teal-950/20 transition-all flex items-center justify-between gap-3"
+                      className="w-full text-right p-3 rounded-xl border border-[var(--aurora-border)] hover:border-teal-500 dark:hover:border-teal-500 hover:bg-teal-50/30 dark:hover:bg-teal-950/20 transition-all flex items-center justify-between gap-3"
                     >
                       <div>
                         <div className="text-xs font-bold text-slate-900 dark:text-slate-100">
@@ -625,7 +625,7 @@ const myEpoch = sessionEpochRef.current;
                     autoComplete="username"
                     required
                     placeholder={demoAccounts.length > 0 ? '20251001 أو rep@demo.dbl.local' : 'الرقم الجامعي أو البريد الإلكتروني'}
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3.5 py-2.5 font-mono"
+                    className="w-full rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-2)] px-3.5 py-2.5 font-mono"
                   />
                 </div>
                 <div>
@@ -636,12 +636,12 @@ const myEpoch = sessionEpochRef.current;
                     onChange={(e) => setLoginPassword(e.target.value)}
                     autoComplete="current-password"
                     required
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3.5 py-2.5 font-mono"
+                    className="w-full rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-2)] px-3.5 py-2.5 font-mono"
                   />
                 </div>
                 <button
                   type="submit"
-                  className="w-full py-2.5 rounded-lg bg-teal-600 text-white font-bold hover:bg-teal-700 transition-colors"
+                  className="w-full py-2.5 rounded-lg bg-[#635BDB] text-white font-bold hover:bg-[#5249C9] transition-colors"
                 >
                   تسجيل الدخول إلى المنصة
                 </button>
@@ -661,7 +661,7 @@ const myEpoch = sessionEpochRef.current;
                       value={setupUniId}
                       onChange={(e) => setSetupUniId(e.target.value)}
                       required
-                      className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 font-mono"
+                      className="w-full rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-2)] px-3 py-2 font-mono"
                     />
                   </div>
                   <div>
@@ -669,7 +669,7 @@ const myEpoch = sessionEpochRef.current;
                     <select
                       value={setupGroup}
                       onChange={(e) => setSetupGroup(e.target.value)}
-                      className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2"
+                      className="w-full rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-2)] px-3 py-2"
                     >
                       <option value="A">المجموعة A</option>
                       <option value="B">المجموعة B</option>
@@ -683,7 +683,7 @@ const myEpoch = sessionEpochRef.current;
                     value={setupName}
                     onChange={(e) => setSetupName(e.target.value)}
                     required
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2"
+                    className="w-full rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-2)] px-3 py-2"
                   />
                 </div>
                 <div>
@@ -693,7 +693,7 @@ const myEpoch = sessionEpochRef.current;
                     value={setupEmail}
                     onChange={(e) => setSetupEmail(e.target.value)}
                     required
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 font-mono"
+                    className="w-full rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-2)] px-3 py-2 font-mono"
                   />
                 </div>
                 <div>
@@ -704,7 +704,7 @@ const myEpoch = sessionEpochRef.current;
                     onChange={(e) => setSetupPassword(e.target.value)}
                     minLength={8}
                     required
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 font-mono"
+                    className="w-full rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-2)] px-3 py-2 font-mono"
                   />
                 </div>
                 {requiresSetupPasscode && (
@@ -715,13 +715,13 @@ const myEpoch = sessionEpochRef.current;
                       value={setupCode}
                       onChange={(e) => setSetupCode(e.target.value)}
                       required
-                      className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 font-mono"
+                      className="w-full rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-2)] px-3 py-2 font-mono"
                     />
                   </div>
                 )}
                 <button
                   type="submit"
-                  className="w-full py-2.5 rounded-lg bg-slate-900 dark:bg-teal-600 text-white font-bold"
+                  className="w-full py-2.5 rounded-lg bg-[#635BDB] text-white font-bold"
                 >
                   اعتماد حساب مندوب الدفعة الفعلي
                 </button>
@@ -730,7 +730,7 @@ const myEpoch = sessionEpochRef.current;
           </div>
         </main>
 
-        <footer className="px-6 py-4 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 flex flex-wrap items-center justify-between gap-2">
+        <footer className="px-6 py-4 border-t border-[var(--aurora-border)] text-xs text-slate-500 flex flex-wrap items-center justify-between gap-2">
           <span>DBL Campus — Student Cohort Management Platform</span>
           {!hidePwaInstallUi && (
          <span>جاهز للاستضافة المركزية عبر الإنترنت (HTTPS) وتثبيت الهواتف (PWA / APK / IPA)</span>
@@ -782,7 +782,7 @@ const myEpoch = sessionEpochRef.current;
   const staffMembers = members.filter((m) => m.role !== 'student');
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
+    <div className="min-h-screen flex flex-col lg:flex-row bg-[var(--aurora-bg)] text-[var(--aurora-text-primary)] overflow-x-hidden aurora-wrap">
       <OfflineIndicator />
 
       {toast && (
@@ -797,9 +797,9 @@ const myEpoch = sessionEpochRef.current;
       )}
 
       {/* Desktop Right Sidebar (RTL) */}
-      <aside className="no-print hidden lg:flex lg:flex-col lg:w-64 shrink-0 border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 justify-between">
+      <aside className="no-print hidden lg:flex lg:flex-col lg:w-64 shrink-0 border-l border-[var(--aurora-border)] bg-[var(--aurora-surface)] justify-between">
         <div>
-          <div className="px-6 py-5 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2.5">
+          <div className="px-6 py-5 border-b border-[var(--aurora-border)] flex items-center gap-2.5">
             <GraduationCap className="w-6 h-6 text-teal-600 shrink-0" />
             <span className="text-lg font-bold tracking-tight whitespace-nowrap">
               DBL Campus
@@ -817,7 +817,7 @@ const myEpoch = sessionEpochRef.current;
                   onClick={() => setActiveTab(item.id)}
                   className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap ${
                     isActive
-                      ? 'bg-slate-900 dark:bg-teal-600 text-white'
+                      ? 'bg-[#635BDB] text-white'
                       : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
                   }`}
                 >
@@ -837,9 +837,9 @@ const myEpoch = sessionEpochRef.current;
         </div>
 
         {/* Role Quick-Switcher in Demo Mode + User Profile Footer */}
-        <div className="p-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+        <div className="p-4 border-t border-[var(--aurora-border)] space-y-3">
           {demoAccounts.length > 0 && (
-            <div className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 space-y-1.5">
+            <div className="p-2.5 rounded-xl bg-[var(--aurora-surface-2)]/80 space-y-1.5">
               <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
                 تبديل الدور التجريبي السريع:
               </label>
@@ -847,7 +847,7 @@ const myEpoch = sessionEpochRef.current;
                 value={user.id}
                 onChange={(e) => handleQuickDemoSwitch(e.target.value)}
                 aria-label="تبديل الدور التجريبي"
-                className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-xs font-semibold"
+                className="w-full rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface)] px-2 py-1.5 text-xs font-semibold"
               >
                 {demoAccounts.map((acc) => (
                   <option key={acc.id} value={acc.id}>
@@ -893,24 +893,24 @@ const myEpoch = sessionEpochRef.current;
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 pb-16 lg:pb-0">
         {/* Top Header */}
-        <header className="no-print safe-top sticky top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-b border-slate-200 dark:border-slate-800 px-3 sm:px-4 lg:px-8 py-2.5 flex items-center justify-between gap-2 sm:gap-4">
+        <header className="no-print safe-top sticky top-0 z-30 bg-[var(--aurora-chrome)] text-[var(--aurora-text-on-chrome)] border-b border-[var(--aurora-chrome-border)] px-3 sm:px-4 lg:px-8 py-2.5 flex items-center justify-between gap-2 sm:gap-4">
           {/* Mobile Brand + Menu Toggle + Active Breadcrumb */}
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
               aria-label="فتح القائمة الجانبية"
-              className="lg:hidden p-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+              className="lg:hidden p-2 rounded-lg border border-[var(--aurora-chrome-border)] text-[var(--aurora-text-on-chrome)] hover:bg-white/10"
             >
               <Menu className="w-4 h-4" />
             </button>
             <div className="flex lg:hidden items-center gap-1.5">
-              <GraduationCap className="w-5 h-5 text-teal-600" />
+              <GraduationCap className="w-5 h-5 text-[#14B8A6]" />
               <span className="font-bold text-sm whitespace-nowrap">DBL Campus</span>
             </div>
-            <span className="hidden lg:inline text-xs font-semibold text-slate-500">
+            <span className="hidden lg:inline text-xs font-semibold text-[var(--aurora-text-on-chrome)]/75">
               دفعة تقنية المعلومات ·{' '}
-              <strong className="text-slate-900 dark:text-slate-100">
+              <strong className="text-[var(--aurora-text-on-chrome)]">
                 {navItems.find((i) => i.id === activeTab)?.label}
               </strong>
             </span>
@@ -924,10 +924,10 @@ const myEpoch = sessionEpochRef.current;
               value={globalQuery}
               onChange={(e) => setGlobalQuery(e.target.value)}
               placeholder="بحث شامل في المقررات، التكاليف، الطلبات، والملفات..."
-              className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 pr-9 pl-3 py-1.5 text-xs"
+              className="w-full rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-2)] text-[var(--aurora-text-primary)] placeholder:text-[var(--aurora-text-secondary)] pr-9 pl-3 py-1.5 text-xs"
             />
             {globalQuery.trim().length > 0 && (
-              <div className="absolute left-0 right-0 mt-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl z-50 max-h-80 overflow-y-auto p-2">
+              <div className="absolute left-0 right-0 mt-1.5 rounded-xl bg-[var(--aurora-surface)] border border-[var(--aurora-border)] shadow-xl z-50 max-h-80 overflow-y-auto p-2">
                 {searchResults.length === 0 ? (
                   <p className="p-3 text-center text-xs text-slate-500">
                     {searchError ? 'تعذر البحث' : 'لا توجد نتائج مطابقة'} ضمن صلاحيات حسابك.
@@ -977,7 +977,7 @@ const myEpoch = sessionEpochRef.current;
                 type="button"
                 onClick={() => setShowNotifPanel(!showNotifPanel)}
                 aria-label="مركز الإشعارات"
-                className="relative p-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="relative p-2 rounded-lg border border-[var(--aurora-chrome-border)] text-[var(--aurora-text-on-chrome)] hover:bg-white/10"
               >
                 <Bell className="w-4 h-4" />
                 {unreadAnnouncements.length > 0 && (
@@ -988,8 +988,8 @@ const myEpoch = sessionEpochRef.current;
               </button>
 
               {showNotifPanel && (
-                <div className="absolute left-0 mt-2 w-80 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl p-3 z-50">
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
+                <div className="absolute left-0 mt-2 w-80 rounded-xl bg-[var(--aurora-surface)] border border-[var(--aurora-border)] shadow-xl p-3 z-50">
+                  <div className="flex items-center justify-between pb-2 border-b border-[var(--aurora-border)]">
                     <span className="text-xs font-bold">مركز الإشعارات والتنبيهات</span>
                     <button
                       type="button"
@@ -1017,7 +1017,7 @@ const myEpoch = sessionEpochRef.current;
                             setActiveTab('announcements');
                             await loadAllCohortData();
                           }}
-                          className="w-full text-right p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-teal-50 dark:hover:bg-teal-950/30 block"
+                          className="w-full text-right p-2.5 rounded-lg bg-[var(--aurora-surface-2)] hover:bg-teal-50 dark:hover:bg-teal-950/30 block"
                         >
                           <div className="text-xs font-bold text-slate-900 dark:text-slate-100">
                             {ann.title}
@@ -1037,7 +1037,7 @@ const myEpoch = sessionEpochRef.current;
               type="button"
               onClick={() => setDarkMode(!darkMode)}
               aria-label="تبديل الوضع الداكن والفاتح"
-              className="p-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+              className="p-2 rounded-lg border border-[var(--aurora-chrome-border)] text-[var(--aurora-text-on-chrome)] hover:bg-white/10"
             >
               {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
@@ -1051,7 +1051,7 @@ const myEpoch = sessionEpochRef.current;
                 setShowProfileModal(true);
               }}
               aria-label="إدارة الحساب الشخصي"
-              className="p-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+              className="p-2 rounded-lg border border-[var(--aurora-chrome-border)] text-[var(--aurora-text-on-chrome)] hover:bg-white/10"
             >
               <User className="w-4 h-4" />
             </button>
@@ -1176,11 +1176,11 @@ const myEpoch = sessionEpochRef.current;
           aria-modal="true"
           aria-label="القائمة الجانبية للهاتف"
         >
-          <div className="w-72 max-w-[85vw] bg-white dark:bg-slate-900 h-full flex flex-col justify-between p-4 shadow-2xl overflow-y-auto">
+          <div className="w-72 max-w-[85vw] bg-[var(--aurora-surface)] h-full flex flex-col justify-between p-4 shadow-2xl overflow-y-auto">
             <div className="space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between pb-3 border-b border-[var(--aurora-border)]">
                 <div className="flex items-center gap-2">
-                  <GraduationCap className="w-5 h-5 text-teal-600" />
+                  <GraduationCap className="w-5 h-5 text-[#14B8A6]" />
                   <span className="font-bold text-base">DBL Campus</span>
                 </div>
                 <button
@@ -1200,7 +1200,7 @@ const myEpoch = sessionEpochRef.current;
                   value={globalQuery}
                   onChange={(e) => setGlobalQuery(e.target.value)}
                   placeholder="بحث شامل..."
-                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 pr-9 pl-3 py-2 text-xs"
+                  className="w-full rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-2)] pr-9 pl-3 py-2 text-xs"
                 />
               </div>
 
@@ -1224,7 +1224,7 @@ const myEpoch = sessionEpochRef.current;
                       }}
                       className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold ${
                         isActive
-                          ? 'bg-slate-900 dark:bg-teal-600 text-white'
+                          ? 'bg-[#635BDB] text-white'
                           : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
                       }`}
                     >
@@ -1243,7 +1243,7 @@ const myEpoch = sessionEpochRef.current;
               </nav>
             </div>
 
-            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-2.5">
+            <div className="pt-4 border-t border-[var(--aurora-border)] space-y-2.5">
               <button
                 type="button"
                 onClick={() => {
@@ -1271,7 +1271,7 @@ const myEpoch = sessionEpochRef.current;
       {/* Mobile Bottom Navigation Bar (<= 15% height cap) */}
       <nav
         aria-label="تنقل الهاتف"
-        className="no-print safe-bottom lg:hidden fixed bottom-0 inset-x-0 z-40 min-h-14 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-around px-1"
+        className="no-print lg:hidden fixed bottom-0 inset-x-0 z-40 min-h-14 bg-[var(--aurora-chrome)] text-[var(--aurora-text-on-chrome)] border-t border-[var(--aurora-chrome-border)] safe-bottom flex items-center justify-around px-1"
       >
         {navItems.slice(0, 5).map((item) => {
           const Icon = item.icon;
@@ -1283,8 +1283,8 @@ const myEpoch = sessionEpochRef.current;
               onClick={() => setActiveTab(item.id)}
               className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-semibold ${
                 isActive
-                  ? 'text-teal-600 dark:text-teal-400'
-                  : 'text-slate-500 dark:text-slate-400'
+                  ? 'text-[#14B8A6] bg-[#635BDB]/25'
+                  : 'text-[var(--aurora-text-on-chrome)]/75 hover:text-[var(--aurora-text-on-chrome)]'
               }`}
             >
               <Icon className="w-4 h-4 mb-0.5" />
@@ -1302,9 +1302,9 @@ const myEpoch = sessionEpochRef.current;
           aria-modal="true"
           aria-labelledby="profile-modal-title"
         >
-          <div className="w-full max-w-md rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-xl">
+          <div className="w-full max-w-md rounded-xl bg-[var(--aurora-surface)] border border-[var(--aurora-border)] p-6 shadow-xl">
             <h3 id="profile-modal-title" className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-              <UserCheck className="w-5 h-5 text-teal-600" />
+              <UserCheck className="w-5 h-5 text-[#14B8A6]" />
               <span>إدارة معلومات حسابي الشخصي</span>
             </h3>
             <form onSubmit={handleSaveProfile} className="mt-4 space-y-3 text-xs">
@@ -1314,7 +1314,7 @@ const myEpoch = sessionEpochRef.current;
                   type="text"
                   value={user.universityId}
                   disabled
-                  className="w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800/50 px-3 py-2 font-mono text-slate-500"
+                  className="w-full rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-2)]/50 px-3 py-2 font-mono text-slate-500"
                 />
               </div>
               <div>
@@ -1324,7 +1324,7 @@ const myEpoch = sessionEpochRef.current;
                   value={profileName}
                   onChange={(e) => setProfileName(e.target.value)}
                   required
-                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2"
+                  className="w-full rounded-lg border border-[var(--aurora-border)] bg-white dark:bg-slate-800 px-3 py-2"
                 />
               </div>
               <div>
@@ -1334,7 +1334,7 @@ const myEpoch = sessionEpochRef.current;
                   value={profileEmail}
                   onChange={(e) => setProfileEmail(e.target.value)}
                   required
-                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 font-mono"
+                  className="w-full rounded-lg border border-[var(--aurora-border)] bg-white dark:bg-slate-800 px-3 py-2 font-mono"
                 />
               </div>
               <label className="block">
@@ -1353,12 +1353,12 @@ const myEpoch = sessionEpochRef.current;
                   onChange={(e) => setProfileNewPass(e.target.value)}
                   placeholder="8 أحرف على الأقل..."
                   minLength={8}
-                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 font-mono"
+                  className="w-full rounded-lg border border-[var(--aurora-border)] bg-white dark:bg-slate-800 px-3 py-2 font-mono"
                 />
               </div>
 
               {demoAccounts.length > 0 && (
-                <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
+                <div className="pt-2 border-t border-[var(--aurora-border)]">
                   <label className="block font-semibold mb-1">
                     تبديل الجلسة التجريبية (لاختبار الهاتف والحاسوب):
                   </label>
@@ -1368,7 +1368,7 @@ const myEpoch = sessionEpochRef.current;
                       setShowProfileModal(false);
                       handleQuickDemoSwitch(e.target.value);
                     }}
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 font-semibold"
+                    className="w-full rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-2)] px-3 py-2 font-semibold"
                   >
                     {demoAccounts.map((acc) => (
                       <option key={acc.id} value={acc.id}>
@@ -1379,7 +1379,7 @@ const myEpoch = sessionEpochRef.current;
                 </div>
               )}
 
-              <div className="pt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 dark:border-slate-800">
+              <div className="pt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--aurora-border)]">
                 <div className="flex items-center gap-1.5">
                   <button
                     type="button"
@@ -1391,7 +1391,7 @@ const myEpoch = sessionEpochRef.current;
                   <button
                     type="button"
                     onClick={handleLogoutAllSessions}
-                    className="px-2.5 py-2 rounded-lg text-[11px] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="px-2.5 py-2 rounded-lg text-[11px] text-slate-600 dark:text-slate-300 border border-[var(--aurora-border)] hover:bg-slate-100 dark:hover:bg-slate-800"
                     title="إنهاء تسجيل الدخول على جميع الهواتف والمتصفحات الأخرى"
                   >
                     إنهاء كل الجلسات
@@ -1401,13 +1401,13 @@ const myEpoch = sessionEpochRef.current;
                   <button
                     type="button"
                     onClick={() => setShowProfileModal(false)}
-                    className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700"
+                    className="px-4 py-2 rounded-lg border border-[var(--aurora-border)]"
                   >
                     إلغاء
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2 rounded-lg bg-teal-600 text-white font-semibold"
+                    className="px-4 py-2 rounded-lg bg-[#635BDB] hover:bg-[#5249C9] text-white font-semibold"
                   >
                     حفظ التغييرات
                   </button>
