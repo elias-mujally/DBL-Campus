@@ -299,8 +299,9 @@ def assert_no_ltr_token_wrap(page, label: str) -> None:
 def _open_students_section(page) -> None:
     menu_btn = page.locator("header button:visible").first
     if menu_btn.count() > 0 and menu_btn.is_visible():
-        menu_btn.click()
-        page.wait_for_timeout(300)
+        if page.locator(".aurora-drawer-panel:visible").count() == 0:
+            menu_btn.click()
+            page.wait_for_timeout(300)
     page.get_by_text("الطلاب والصلاحيات").first.click()
     page.wait_for_timeout(450)
 
