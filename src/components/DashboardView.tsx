@@ -137,17 +137,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <button
                 type="button"
                 onClick={() => onNavigate('assignments')}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg border aurora-on-dark-btn transition-colors whitespace-nowrap"
               >
-                <BookOpen className="w-4 h-4 text-teal-600" />
+                <BookOpen className="w-4 h-4 text-[#5EEAD4]" />
                 <span>إضافة تكليف</span>
               </button>
               <button
                 type="button"
                 onClick={() => onNavigate('tasks')}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg border aurora-on-dark-btn transition-colors whitespace-nowrap"
               >
-                <CheckSquare className="w-4 h-4 text-amber-600" />
+                <CheckSquare className="w-4 h-4 text-[#FCD34D]" />
                 <span>تفويض مهمة</span>
               </button>
             </>
@@ -164,9 +164,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <button
                 type="button"
                 onClick={() => onNavigate('schedule')}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg border aurora-on-dark-btn transition-colors whitespace-nowrap"
               >
-                <Calendar className="w-4 h-4 text-teal-600" />
+                <Calendar className="w-4 h-4 text-[#E8E6FC]" />
                 <span>جدول مجموعتي ({user.groupName})</span>
               </button>
             </>
