@@ -281,7 +281,7 @@ test('restoreAndValidateSession ignores stale { user } response after persistAut
     let resolveFetch!: (val: { user: { id: string; role: string } }) => void;
     const validationPromise = restoreAndValidateSession(
       () =>
-        new Promise((resolve) => {
+        new Promise<{ user: unknown }>((resolve) => {
           resolveFetch = resolve;
         }),
     );
