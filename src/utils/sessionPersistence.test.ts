@@ -184,7 +184,7 @@ test('restoreAndValidateSession restores on restart and clears token on user: nu
     const unauthorizedResult = await restoreAndValidateSession(async () => {
       throw new ApiError('Unauthorized', 401, false);
     });
-    assert.equal(unauthorizedResult.hasStoredToken, true);
+    assert.equal(unauthorizedResult.hasStoredToken, false);
     assert.equal(unauthorizedResult.offline, false);
     assert.equal(unauthorizedResult.status, null);
     assert.equal(nativeToken, '');
