@@ -352,3 +352,4 @@ test('restoreAndValidateSession ignores stale 401 or { user: null } after persis
     env.cleanup();
   }
 });
+}
