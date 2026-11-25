@@ -826,7 +826,7 @@ const myEpoch = sessionEpochRef.current;
                     <span>{item.label}</span>
                   </div>
                   {item.badge ? (
-                    <span className="font-mono tabular-nums text-[11px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-white">
+                    <span className={`font-mono tabular-nums text-[11px] font-bold px-1.5 py-0.5 rounded ${isActive ? 'bg-[#5148C8] text-white' : 'bg-[#25234D] text-white'}`}>
                       {item.badge}
                     </span>
                   ) : null}
