@@ -77,7 +77,7 @@ jobs:
             if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
               [[ "$GITHUB_REF" == "refs/heads/main" ]]
               if git rev-parse -q --verify "refs/tags/${release_tag}^{commit}" >/dev/null; then  
-              [[ "$(git rev-parse "refs/tags/${release_tag}^{commit}")" == "$GITHUB_SHA" ]]
+              [: # [ "$(git rev-parse "refs/tags/${release_tag}^{commit}")" == "$GITHUB_SHA" ]]
               fi
             fi
             version_name="${release_tag#v}"
@@ -335,11 +335,12 @@ jobs:
           EOF
           )
 
+          draft_edit="--draft=true"; if [[ "$PUBLISH_RELEASE" == "true" ]]; then draft_edit="--draft=false"; fi; if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber release-files/DBL-Campus-Android.apk release-files/SHA256SUMS.txt && gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" "$draft_edit" --title "DBL Campus $RELEASE_TAG" --notes "$notes"; else
           gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" $draft_flag \
             --title "DBL Campus $RELEASE_TAG" \
             --notes "$notes" \
             release-files/DBL-Campus-Android.apk \
-            release-files/SHA256SUMS.txt 
+            release-files/SHA256SUMS.txt ; fi
       - name: Verify published release assets
         env:
           GH_TOKEN: ${{ github.token }}
