@@ -474,7 +474,7 @@ const myEpoch = sessionEpochRef.current;
           </div>
         )}
 
-        <header className="safe-top flex items-center justify-between gap-2 sm:gap-6 px-3 sm:px-6 py-3 sm:py-4 border-b border-[var(--aurora-chrome-border)] bg-[var(--aurora-chrome)] text-[var(--aurora-text-on-chrome)]">
+        <header className="safe-top flex items-center justify-between gap-2 sm:gap-6 px-3 sm:px-6 py-3 sm:py-4 border-b border-[var(--aurora-on-dark-border)] bg-[var(--aurora-chrome)] text-[var(--aurora-on-dark-text)]">
           <div className="flex items-center gap-2 whitespace-nowrap shrink-0">
             <GraduationCap className="w-6 h-6 text-teal-600 shrink-0" />
             <span className="text-base sm:text-lg font-bold tracking-tight">DBL Campus</span>
@@ -497,7 +497,7 @@ const myEpoch = sessionEpochRef.current;
               type="button"
               onClick={() => setDarkMode(!darkMode)}
               aria-label="تبديل الوضع الليلي والنهاري"
-              className="p-2 rounded-lg border border-[var(--aurora-chrome-border)] text-[var(--aurora-text-on-chrome)] hover:bg-white/10 shrink-0"
+              className="p-2 rounded-lg border border-[var(--aurora-on-dark-border)] text-[var(--aurora-on-dark-text)] hover:bg-[var(--aurora-on-dark-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--aurora-on-dark-icon-active)] shrink-0"
             >
               {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
@@ -893,14 +893,14 @@ const myEpoch = sessionEpochRef.current;
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 pb-16 lg:pb-0">
         {/* Top Header */}
-        <header className="no-print safe-top sticky top-0 z-30 bg-[var(--aurora-chrome)] text-[var(--aurora-text-on-chrome)] border-b border-[var(--aurora-chrome-border)] px-3 sm:px-4 lg:px-8 py-2.5 flex items-center justify-between gap-2 sm:gap-4">
+        <header className="no-print safe-top sticky top-0 z-30 bg-[var(--aurora-chrome)] text-[var(--aurora-on-dark-text)] border-b border-[var(--aurora-on-dark-border)] px-3 sm:px-4 lg:px-8 py-2.5 flex items-center justify-between gap-2 sm:gap-4">
           {/* Mobile Brand + Menu Toggle + Active Breadcrumb */}
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
               aria-label="فتح القائمة الجانبية"
-              className="lg:hidden p-2 rounded-lg border border-[var(--aurora-chrome-border)] text-[var(--aurora-text-on-chrome)] hover:bg-white/10"
+              className="lg:hidden p-2 rounded-lg border border-[var(--aurora-on-dark-border)] text-[var(--aurora-on-dark-text)] hover:bg-[var(--aurora-on-dark-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--aurora-on-dark-icon-active)]"
             >
               <Menu className="w-4 h-4" />
             </button>
@@ -908,9 +908,9 @@ const myEpoch = sessionEpochRef.current;
               <GraduationCap className="w-5 h-5 text-[#14B8A6]" />
               <span className="font-bold text-sm whitespace-nowrap">DBL Campus</span>
             </div>
-            <span className="hidden lg:inline text-xs font-semibold text-[var(--aurora-text-on-chrome)]/75">
+            <span className="hidden lg:inline text-xs font-semibold text-[var(--aurora-on-dark-text-muted)]">
               دفعة تقنية المعلومات ·{' '}
-              <strong className="text-[var(--aurora-text-on-chrome)]">
+              <strong className="text-[var(--aurora-on-dark-text)]">
                 {navItems.find((i) => i.id === activeTab)?.label}
               </strong>
             </span>
@@ -977,7 +977,7 @@ const myEpoch = sessionEpochRef.current;
                 type="button"
                 onClick={() => setShowNotifPanel(!showNotifPanel)}
                 aria-label="مركز الإشعارات"
-                className="relative p-2 rounded-lg border border-[var(--aurora-chrome-border)] text-[var(--aurora-text-on-chrome)] hover:bg-white/10"
+                className="relative p-2 rounded-lg border border-[var(--aurora-on-dark-border)] text-[var(--aurora-on-dark-text)] hover:bg-[var(--aurora-on-dark-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--aurora-on-dark-icon-active)]"
               >
                 <Bell className="w-4 h-4" />
                 {unreadAnnouncements.length > 0 && (
@@ -1037,7 +1037,7 @@ const myEpoch = sessionEpochRef.current;
               type="button"
               onClick={() => setDarkMode(!darkMode)}
               aria-label="تبديل الوضع الداكن والفاتح"
-              className="p-2 rounded-lg border border-[var(--aurora-chrome-border)] text-[var(--aurora-text-on-chrome)] hover:bg-white/10"
+              className="p-2 rounded-lg border border-[var(--aurora-on-dark-border)] text-[var(--aurora-on-dark-text)] hover:bg-[var(--aurora-on-dark-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--aurora-on-dark-icon-active)]"
             >
               {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
@@ -1051,7 +1051,7 @@ const myEpoch = sessionEpochRef.current;
                 setShowProfileModal(true);
               }}
               aria-label="إدارة الحساب الشخصي"
-              className="p-2 rounded-lg border border-[var(--aurora-chrome-border)] text-[var(--aurora-text-on-chrome)] hover:bg-white/10"
+              className="p-2 rounded-lg border border-[var(--aurora-on-dark-border)] text-[var(--aurora-on-dark-text)] hover:bg-[var(--aurora-on-dark-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--aurora-on-dark-icon-active)]"
             >
               <User className="w-4 h-4" />
             </button>
@@ -1271,7 +1271,7 @@ const myEpoch = sessionEpochRef.current;
       {/* Mobile Bottom Navigation Bar (<= 15% height cap) */}
       <nav
         aria-label="تنقل الهاتف"
-        className="no-print lg:hidden fixed bottom-0 inset-x-0 z-40 min-h-14 bg-[var(--aurora-chrome)] text-[var(--aurora-text-on-chrome)] border-t border-[var(--aurora-chrome-border)] safe-bottom flex items-center justify-around px-1"
+        className="no-print lg:hidden fixed bottom-0 inset-x-0 z-40 min-h-14 bg-[var(--aurora-chrome)] text-[var(--aurora-on-dark-text)] border-t border-[var(--aurora-on-dark-border)] safe-bottom flex items-center justify-around px-1"
       >
         {navItems.slice(0, 5).map((item) => {
           const Icon = item.icon;
@@ -1283,8 +1283,8 @@ const myEpoch = sessionEpochRef.current;
               onClick={() => setActiveTab(item.id)}
               className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-semibold ${
                 isActive
-                  ? 'text-[#14B8A6] bg-[#635BDB]/25'
-                  : 'text-[var(--aurora-text-on-chrome)]/75 hover:text-[var(--aurora-text-on-chrome)]'
+                  ? 'text-[var(--aurora-on-dark-icon-active)] bg-[var(--aurora-on-dark-surface-active)]'
+                  : 'text-[var(--aurora-on-dark-text-muted)] hover:text-[var(--aurora-on-dark-text)]'
               }`}
             >
               <Icon className="w-4 h-4 mb-0.5" />
