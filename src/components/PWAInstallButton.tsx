@@ -62,7 +62,7 @@ if (shouldHidePwaInstallUi(isNativeCapacitorApp())) return null;
       <button
         type="button"
         onClick={handleInstallClick}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0"
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg aurora-on-dark-btn transition-colors whitespace-nowrap shrink-0"
         title="تثبيت تطبيق DBL Campus على الجهاز"
       >
         <Download className="w-3.5 h-3.5" />
