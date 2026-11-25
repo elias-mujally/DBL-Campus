@@ -93,7 +93,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <div className="aurora-hero p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-white/75">
-            <span className="px-2.5 py-0.5 rounded-full font-bold bg-[#1B193A]/75 text-[#5EEAD4] border border-[#14B8A6]/35">
+            <span className="px-2.5 py-0.5 rounded-full font-bold bg-[#1B193A] text-[#5EEAD4] border border-[#14B8A6]/35">
               {ROLE_LABELS_AR[user.role]}
             </span>
             <span aria-hidden="true">·</span>
@@ -106,7 +106,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {user.isDemo && (
               <>
                 <span aria-hidden="true">·</span>
-                <span className="px-2 py-0.5 rounded-full bg-[#1B193A]/75 text-[#FCD34D] border border-[#F59E0B]/35 font-semibold">
+                <span className="px-2 py-0.5 rounded-full bg-[#1B193A] text-[#FCD34D] border border-[#F59E0B]/35 font-semibold">
                   بيئة تجربة تفاعلية
                 </span>
               </>
