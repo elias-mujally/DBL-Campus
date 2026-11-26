@@ -302,7 +302,7 @@ def _open_students_section(page) -> None:
         if page.locator(".aurora-drawer-panel:visible").count() == 0:
             menu_btn.click()
             page.wait_for_timeout(300)
-    page.get_by_text("الطلاب والصلاحيات").first.click()
+    page.locator("button:has-text('إدارة الطلاب'):visible, button:has-text('الطلاب'):visible").first.click()
     page.wait_for_timeout(450)
 
 
@@ -332,7 +332,7 @@ def run_v130_responsive_and_motion_audit(browser) -> None:
         set_theme(v_page, False)
         v_page.wait_for_timeout(400)
         # Open and close a modal
-        add_btn = v_page.locator("button:has-text('إضافة')").first
+        add_btn = v_page.locator("button:has-text('إضافة'):visible").first
         if add_btn.count() > 0 and add_btn.is_visible():
             add_btn.click()
             v_page.wait_for_timeout(400)
@@ -342,7 +342,7 @@ def run_v130_responsive_and_motion_audit(browser) -> None:
         if menu_btn.count() > 0 and menu_btn.is_visible():
             menu_btn.click()
             v_page.wait_for_timeout(350)
-        v_page.get_by_text("لوحة التحكم").first.click()
+        v_page.locator(':text("لوحة التحكم"):visible').first.click()
         v_page.wait_for_timeout(400)
     finally:
         v_ctx.close()
