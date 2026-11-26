@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['icon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png'], 'aurora-logo.png', 'favicon.ico', 'favicon-32x32.png',
+        includeAssets: ['icon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png', 'aurora-logo.png', 'favicon.ico', 'favicon-32x32.png'],
         manifest: {
           id: '/',
           name: 'DBL Campus — منصة إدارة الدفعات الجامعية',
