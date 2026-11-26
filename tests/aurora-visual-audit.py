@@ -357,7 +357,10 @@ def run_v130_responsive_and_motion_audit(browser) -> None:
     s_page = s_ctx.new_page()
     try:
         login_demo(s_page)
-        demo_res = s_page.request.post(f"{BASE_URL}/api/auth/demo-login", data={})
+        status_res = s_page.request.get(f"{BASE_URL}/api/auth/status")
+        demo_accounts = status_res.json()["demoAccounts"]
+        rep = next((a for a in demo_accounts if a.get("role") == "representative"), demo_accounts[0])
+        demo_res = s_page.request.post(f"{BASE_URL}/api/auth/demo-login", data={"userId": rep["id"]})
         token = demo_res.json()["token"]
         create_res = s_page.request.post(
             f"{BASE_URL}/api/users",
