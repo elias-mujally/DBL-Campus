@@ -110,12 +110,17 @@ export default function App() {
   const [profileNewPass, setProfileNewPass] = useState('');
 
   useEffect(() => {
+    document.documentElement.classList.add('aurora-theme-switching');
     if (darkMode) {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
     }
     saveThemePreference(darkMode);
+    const timer = window.setTimeout(() => {
+      document.documentElement.classList.remove('aurora-theme-switching');
+    }, 280);
+    return () => window.clearTimeout(timer);
   }, [darkMode]);
 
   useEffect(() => {
@@ -466,7 +471,7 @@ const myEpoch = sessionEpochRef.current;
         {toast && (
           <div
             role="status"
-            className={`fixed top-4 left-4 z-50 px-4 py-3 rounded-xl shadow-lg text-xs font-bold text-white ${
+            className={`fixed top-4 left-4 z-50 px-4 py-3 rounded-xl shadow-lg text-xs font-bold text-white aurora-toast-enter ${
               toast.type === 'error' ? 'bg-rose-600' : 'bg-teal-600'
             }`}
           >
@@ -788,7 +793,7 @@ const myEpoch = sessionEpochRef.current;
       {toast && (
         <div
           role="status"
-          className={`fixed top-4 left-4 z-50 px-4 py-3 rounded-xl shadow-lg text-xs font-bold text-white ${
+          className={`fixed top-4 left-4 z-50 px-4 py-3 rounded-xl shadow-lg text-xs font-bold text-white aurora-toast-enter ${
             toast.type === 'error' ? 'bg-rose-600' : 'bg-teal-600'
           }`}
         >
@@ -988,7 +993,7 @@ const myEpoch = sessionEpochRef.current;
               </button>
 
               {showNotifPanel && (
-                <div className="absolute left-0 mt-2 w-80 rounded-xl bg-[var(--aurora-surface)] border border-[var(--aurora-border)] shadow-xl p-3 z-50">
+                <div className="absolute left-0 mt-2 w-80 rounded-xl bg-[var(--aurora-surface)] border border-[var(--aurora-border)] shadow-xl p-3 z-50 aurora-dropdown-enter">
                   <div className="flex items-center justify-between pb-2 border-b border-[var(--aurora-border)]">
                     <span className="text-xs font-bold">مركز الإشعارات والتنبيهات</span>
                     <button
@@ -1060,6 +1065,7 @@ const myEpoch = sessionEpochRef.current;
 
         {/* Active View Container */}
         <main className="flex-1 max-w-6xl w-full mx-auto px-4 lg:px-8 py-6">
+        <div key={activeTab} className="aurora-page-enter">
           {activeTab === 'dashboard' && (
             <DashboardView
               user={user}
@@ -1165,18 +1171,19 @@ const myEpoch = sessionEpochRef.current;
               notify={notify}
             />
           )}
-        </main>
+          </div>
+      </main>
       </div>
 
       {/* Mobile Slide-Over Navigation Drawer */}
       {mobileMenuOpen && (
         <div
-          className="no-print lg:hidden fixed inset-0 z-50 flex justify-start bg-slate-950/60"
+          className="no-print lg:hidden fixed inset-0 z-50 flex justify-start bg-slate-950/60 aurora-drawer-backdrop"
           role="dialog"
           aria-modal="true"
           aria-label="القائمة الجانبية للهاتف"
         >
-          <div className="w-72 max-w-[85vw] bg-[var(--aurora-surface)] h-full flex flex-col justify-between p-4 shadow-2xl overflow-y-auto">
+          <div className="w-72 max-w-[85vw] bg-[var(--aurora-surface)] h-full flex flex-col justify-between p-4 shadow-2xl overflow-y-auto aurora-drawer-panel">
             <div className="space-y-4">
               <div className="flex items-center justify-between pb-3 border-b border-[var(--aurora-border)]">
                 <div className="flex items-center gap-2">
@@ -1222,7 +1229,7 @@ const myEpoch = sessionEpochRef.current;
                         setActiveTab(item.id);
                         setMobileMenuOpen(false);
                       }}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold ${
+                      className={`aurora-nav-pill aurora-btn-motion w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold ${
                         isActive
                           ? 'bg-[#635BDB] text-white'
                           : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -1281,7 +1288,7 @@ const myEpoch = sessionEpochRef.current;
               key={item.id}
               type="button"
               onClick={() => setActiveTab(item.id)}
-              className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-semibold ${
+              className={`aurora-nav-pill aurora-btn-motion flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-semibold ${
                 isActive
                   ? 'text-[var(--aurora-on-dark-icon-active)] bg-[var(--aurora-on-dark-surface-active)]'
                   : 'text-[var(--aurora-on-dark-text-muted)] hover:text-[var(--aurora-on-dark-text)]'
@@ -1297,12 +1304,12 @@ const myEpoch = sessionEpochRef.current;
       {/* Personal Profile Modal */}
       {showProfileModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 aurora-modal-backdrop"
           role="dialog"
           aria-modal="true"
           aria-labelledby="profile-modal-title"
         >
-          <div className="w-full max-w-md rounded-xl bg-[var(--aurora-surface)] border border-[var(--aurora-border)] p-6 shadow-xl">
+          <div className="w-full max-w-md rounded-xl bg-[var(--aurora-surface)] border border-[var(--aurora-border)] p-6 shadow-xl aurora-modal-panel">
             <h3 id="profile-modal-title" className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <UserCheck className="w-5 h-5 text-[#14B8A6]" />
               <span>إدارة معلومات حسابي الشخصي</span>

@@ -62,6 +62,7 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
   const [newCredential, setNewCredential] = useState('');
   const [editingMember, setEditingMember] = useState<UserAccount | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [auditLogsLoading, setAuditLogsLoading] = useState(false);
   const [confirmDemoPurge, setConfirmDemoPurge] = useState(false);
 
   // Add student state
@@ -80,9 +81,10 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
 
   useEffect(() => {
     if (mode === 'admin' && (isRepresentative || hasPermission(user, 'permissions'))) {
+      setAuditLogsLoading(true);
       apiFetch<AuditLogEntry[]>('/api/admin/audit-logs')
         .then(setAuditLogs)
-        .catch(() => setAuditLogs([]));
+        .catch(() => setAuditLogs([])).finally(() => setAuditLogsLoading(false));
     }
   }, [mode, isRepresentative, user]);
 
@@ -363,21 +365,21 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
             </span>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-right">
+          <div className="space-y-3 lg:hidden p-3">{auditLogsLoading ? (Array.from({ length: 3 }).map((_, idx) => (<div key={idx} className="aurora-card p-4 space-y-2.5"><div className="flex items-center justify-between gap-2"><div className="h-3.5 w-28 rounded aurora-skeleton-shimmer" /><div className="h-5 w-16 rounded-full aurora-skeleton-shimmer" /></div><div className="h-3.5 w-40 rounded aurora-skeleton-shimmer" /><div className="h-3 w-full rounded aurora-skeleton-shimmer" /></div>))) : auditLogs.length === 0 ? (<div className="p-6 text-center text-xs text-slate-500 dark:text-slate-400">لا توجد سجلات مراجعة بعد.</div>) : (auditLogs.map((log) => (<div key={log.id} className="aurora-card aurora-stagger-item p-4 space-y-2 text-xs"><div className="flex items-center justify-between gap-2"><span className="font-semibold text-slate-900 dark:text-slate-100 aurora-wrap">{log.actorName}</span><span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-medium whitespace-nowrap">{ROLE_LABELS_AR[log.actorRole] || log.actorRole}</span></div><div className="flex flex-wrap items-center justify-between gap-2 text-[11px]"><span className="font-mono text-teal-700 dark:text-teal-400 whitespace-nowrap">{log.action}</span><span className="aurora-ltr-token font-mono tabular-nums text-slate-500 whitespace-nowrap">{log.createdAt.slice(0, 19).replace('T', ' ')}</span></div>{log.details && (<p className="text-slate-700 dark:text-slate-300 aurora-wrap leading-relaxed">{log.details}</p>)}</div>)))}</div><div className="hidden lg:block overflow-x-auto">
+            <table className="w-full min-w-[720px] text-xs text-right">
               <thead className="bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-800">
                 <tr>
-                  <th className="px-4 py-2.5">التوقيت</th>
-                  <th className="px-4 py-2.5">المنفذ</th>
-                  <th className="px-4 py-2.5">الدور</th>
-                  <th className="px-4 py-2.5">العملية</th>
-                  <th className="px-4 py-2.5">التفاصيل</th>
+                  <th className="px-4 py-2.5 whitespace-nowrap">التوقيت</th>
+                  <th className="px-4 py-2.5 whitespace-nowrap">المنفذ</th>
+                  <th className="px-4 py-2.5 whitespace-nowrap">الدور</th>
+                  <th className="px-4 py-2.5 whitespace-nowrap">العملية</th>
+                  <th className="px-4 py-2.5 whitespace-nowrap">التفاصيل</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {auditLogs.map((log) => (
                   <tr key={log.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
-                    <td className="px-4 py-2.5 font-mono tabular-nums text-slate-500">
+                    <td className="px-4 py-2.5 font-mono tabular-nums text-slate-500 whitespace-nowrap aurora-ltr-token">
                       {log.createdAt.slice(0, 19).replace('T', ' ')}
                     </td>
                     <td className="px-4 py-2.5 font-semibold text-slate-900 dark:text-slate-100">
@@ -506,28 +508,28 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
 
       {/* Roster Table */}
       <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs text-right">
+        <div className="space-y-3 lg:hidden p-3">{filteredMembers.length === 0 ? (<div className="p-6 text-center text-xs text-slate-500 dark:text-slate-400">لا توجد نتائج مطابقة.</div>) : (filteredMembers.map((m) => (<div key={m.id} className="aurora-card aurora-stagger-item p-4 space-y-3 text-xs"><div className="flex items-start justify-between gap-2"><div className="min-w-0 space-y-1"><div className="font-bold text-sm text-slate-900 dark:text-slate-100 aurora-wrap">{m.fullName}</div><div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono aurora-email">{m.email}</div></div><div className="flex flex-col items-end gap-1 shrink-0"><span className="px-2 py-0.5 rounded-full bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300 text-[11px] font-semibold whitespace-nowrap">{ROLE_LABELS_AR[m.role]}</span><span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${m.isActive ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-950/40 text-rose-600'}`}>{m.isActive ? 'نشط' : 'معطل'}</span></div></div><div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600 dark:text-slate-300"><span className="aurora-ltr-token font-mono tabular-nums font-semibold">{m.universityId}</span><span className="font-semibold whitespace-nowrap">مجموعة {m.groupName}</span></div><div className="flex flex-wrap gap-1.5">{m.role === 'representative' ? (<span className="px-2 py-0.5 rounded-full bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300 text-[11px] font-medium whitespace-nowrap">صلاحية شاملة لجميع الأقسام</span>) : m.responsibilities.length > 0 ? (m.responsibilities.map((r) => (<span key={r} className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[11px] font-medium whitespace-nowrap">{RESPONSIBILITY_LABELS_AR[r] || r}</span>))) : (<span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[11px] whitespace-nowrap">صلاحيات طالب اعتيادي</span>)}</div>{canManageStudents && (<button type="button" disabled={!isRepresentative && m.role !== 'student'} onClick={() => { setIssueNewPassword(false); setEditingMember({ ...m }); }} className="w-full min-h-[40px] aurora-btn-motion inline-flex items-center justify-center gap-1.5 rounded-lg border border-teal-200 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/40 px-3 py-2 text-xs font-semibold text-teal-700 dark:text-teal-300 disabled:opacity-40"><Edit3 className="w-3.5 h-3.5" /><span>تعديل / صلاحيات</span></button>)}</div>)))}</div><div className="hidden lg:block overflow-x-auto">
+          <table className="w-full min-w-[780px] text-xs text-right">
             <thead className="bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-800">
               <tr>
-                <th className="px-4 py-3">الرقم الجامعي</th>
-                <th className="px-4 py-3">الاسم الكامل</th>
-                <th className="px-4 py-3">المجموعة</th>
-                <th className="px-4 py-3">الدور</th>
-                <th className="px-4 py-3">المسؤوليات المفوضة</th>
-                <th className="px-4 py-3">الحالة</th>
-                {canManageStudents && <th className="px-4 py-3">إجراءات</th>}
+                <th className="px-4 py-3 whitespace-nowrap">الرقم الجامعي</th>
+                <th className="px-4 py-3 whitespace-nowrap">الاسم الكامل</th>
+                <th className="px-4 py-3 whitespace-nowrap">المجموعة</th>
+                <th className="px-4 py-3 whitespace-nowrap">الدور</th>
+                <th className="px-4 py-3 whitespace-nowrap">المسؤوليات المفوضة</th>
+                <th className="px-4 py-3 whitespace-nowrap">الحالة</th>
+                {canManageStudents && <th className="px-4 py-3 whitespace-nowrap">إجراءات</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filteredMembers.map((m) => (
                 <tr key={m.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
-                  <td className="px-4 py-3 font-mono tabular-nums font-semibold">
+                  <td className="px-4 py-3 font-mono tabular-nums font-semibold whitespace-nowrap aurora-ltr-token">
                     {m.universityId}
                   </td>
                   <td className="px-4 py-3 font-bold text-slate-900 dark:text-slate-100">
                     {m.fullName}
-                    <div className="text-[11px] font-normal text-slate-400 font-mono">
+                    <div className="text-[11px] font-normal text-slate-500 dark:text-slate-400 font-mono aurora-email">
                       {m.email}
                     </div>
                   </td>
@@ -580,12 +582,12 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
       {/* Add User Modal */}
       {showAddUserModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
+          className="aurora-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="add-member-title"
         >
-          <div className="w-full max-w-lg rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-xl">
+          <div className="aurora-modal-panel w-full max-w-lg rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-xl">
             <h3 id="add-member-title" className="text-lg font-bold text-slate-900 dark:text-slate-100">
               إضافة عضو جديد إلى الدفعة
             </h3>
@@ -715,12 +717,12 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
       {/* Edit Member & Permissions Modal */}
       {editingMember && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
+          className="aurora-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="edit-member-title"
         >
-          <div className="w-full max-w-lg rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-xl">
+          <div className="aurora-modal-panel w-full max-w-lg rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-xl">
             <h3 id="edit-member-title" className="text-lg font-bold text-slate-900 dark:text-slate-100">
               تعديل بيانات وصلاحيات: {editingMember.fullName}
             </h3>
@@ -840,12 +842,12 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
       {/* CSV Import Modal */}
       {showCsvModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
+          className="aurora-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="csv-modal-title"
         >
-          <div className="w-full max-w-lg rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-xl">
+          <div className="aurora-modal-panel w-full max-w-lg rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-xl">
             <h3 id="csv-modal-title" className="text-lg font-bold text-slate-900 dark:text-slate-100">
               استيراد قائمة الطلاب من ملف CSV
             </h3>

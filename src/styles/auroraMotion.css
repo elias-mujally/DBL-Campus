@@ -1,0 +1,190 @@
+/* Aurora Motion System — GPU-composited (transform & opacity only) */
+
+:root {
+  --motion-instant: 90ms;
+  --motion-fast: 150ms;
+  --motion-normal: 220ms;
+  --motion-gentle: 280ms;
+  --motion-stagger-step: 35ms;
+  --ease-aurora-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-aurora-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-aurora-spring: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes auroraPageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.aurora-page-enter {
+  animation: auroraPageEnter var(--motion-normal) var(--ease-aurora-out) both;
+  will-change: transform, opacity;
+}
+
+.aurora-btn-motion {
+  transition: transform var(--motion-instant) var(--ease-aurora-spring),
+    opacity var(--motion-fast) var(--ease-aurora-out);
+}
+
+.aurora-btn-motion:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+@keyframes auroraBackdropEnter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes auroraDrawerRtlEnter {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.aurora-drawer-backdrop {
+  animation: auroraBackdropEnter var(--motion-fast) var(--ease-aurora-out) both;
+}
+
+.aurora-drawer-panel {
+  animation: auroraDrawerRtlEnter var(--motion-gentle) var(--ease-aurora-out) both;
+  will-change: transform, opacity;
+}
+
+@keyframes auroraModalEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.aurora-modal-backdrop {
+  animation: auroraBackdropEnter var(--motion-fast) var(--ease-aurora-out) both;
+}
+
+.aurora-modal-panel {
+  animation: auroraModalEnter var(--motion-normal) var(--ease-aurora-out) both;
+  will-change: transform, opacity;
+}
+
+@keyframes auroraStaggerEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.aurora-stagger-item {
+  animation: auroraStaggerEnter var(--motion-normal) var(--ease-aurora-out) both;
+  animation-delay: calc(min(var(--stagger-index, 0), 6) * var(--motion-stagger-step));
+  will-change: transform, opacity;
+}
+
+.aurora-nav-pill {
+  transition: transform var(--motion-normal) var(--ease-aurora-spring),
+    opacity var(--motion-fast) var(--ease-aurora-out);
+}
+
+@keyframes auroraToastEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.aurora-toast-enter {
+  animation: auroraToastEnter var(--motion-normal) var(--ease-aurora-out) both;
+  will-change: transform, opacity;
+}
+
+@keyframes auroraDropdownEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.aurora-dropdown-enter {
+  animation: auroraDropdownEnter var(--motion-fast) var(--ease-aurora-out) both;
+  transform-origin: top center;
+  will-change: transform, opacity;
+}
+
+@keyframes auroraSkeletonShimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.aurora-skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.aurora-skeleton-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.12) 50%,
+    transparent 100%
+  );
+  animation: auroraSkeletonShimmer 1.4s var(--ease-aurora-in-out) infinite;
+  will-change: transform;
+}
+
+html.aurora-theme-switching,
+html.aurora-theme-switching * {
+  transition: background-color 260ms var(--ease-aurora-in-out),
+    color 260ms var(--ease-aurora-in-out),
+    border-color 260ms var(--ease-aurora-in-out),
+    fill 260ms var(--ease-aurora-in-out),
+    stroke 260ms var(--ease-aurora-in-out) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

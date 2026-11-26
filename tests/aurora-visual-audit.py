@@ -208,14 +208,8 @@ def audit_live_dom_contrast(page, label: str) -> None:
     print(f"[WCAG AA LIVE DOM] {label}: OK")
 
 def login_demo(page) -> None:
-    resp = page.request.post(f"{BASE_URL}/api/auth/demo-login", data={})
-    if not resp.ok:
-        resp = page.request.post(f"{BASE_URL}/api/auth/demo-login", data={"role": "admin"})
-    if resp.ok:
-        page.goto(BASE_URL, wait_until="networkidle")
-        return
-    demo_btn = page.locator("button:has-text('Demo'), button:has-text('تجريبي')").first
-    demo_btn.click()
+    page.goto(f"{BASE_URL}/?autostart=1", wait_until="networkidle")
+    page.wait_for_function("() => !document.querySelector('input[type=\"password\"]') && !!document.querySelector('header, aside, nav')", timeout=15000)
     page.wait_for_load_state("networkidle")
 
 
@@ -280,6 +274,7 @@ def main() -> None:
                     page.screenshot(path=str(SCREENSHOT_DIR / "06-dashboard-dark-mobile.png"), full_page=True)
                     audit_live_dom_contrast(page, "06-dashboard-dark-mobile")
                     ctx_desktop.close()
+                    run_v130_responsive_and_motion_audit(browser)
                 finally:
                     browser.close()
         finally:
@@ -289,6 +284,121 @@ def main() -> None:
             except subprocess.TimeoutExpired:
                 server.kill()
                 server.wait(timeout=5)
+
+
+def assert_no_ltr_token_wrap(page, label: str) -> None:
+    bad = page.evaluate("""() => {
+        return Array.from(document.querySelectorAll('.aurora-ltr-token'))
+            .map((el) => ({ text: (el.innerText || '').trim(), height: el.getBoundingClientRect().height }))
+            .filter((item) => item.height > 36);
+    }""")
+    if bad:
+        raise AssertionError(f"LTR token wrapped vertically on {label}: {bad[:3]}")
+
+
+def _open_students_section(page) -> None:
+    menu_btn = page.locator("header button:visible").first
+    if menu_btn.count() > 0 and menu_btn.is_visible():
+        if page.locator(".aurora-drawer-panel:visible").count() == 0:
+            menu_btn.click()
+            page.wait_for_timeout(300)
+    page.locator("button:has-text('إدارة الطلاب'):visible, button:has-text('الطلاب'):visible").first.click()
+    page.wait_for_timeout(450)
+
+
+def run_v130_responsive_and_motion_audit(browser) -> None:
+    # 1) Aurora Motion video recording (390x844)
+    v_ctx = browser.new_context(
+        viewport={"width": 390, "height": 844},
+        record_video_dir=str(SCREENSHOT_DIR),
+        record_video_size={"width": 390, "height": 844},
+    )
+    v_page = v_ctx.new_page()
+    video = v_page.video
+    try:
+        login_demo(v_page)
+        v_page.wait_for_timeout(400)
+        # Open and close sidebar
+        menu_btn = v_page.locator("header button:visible").first
+        if menu_btn.count() > 0 and menu_btn.is_visible():
+            menu_btn.click()
+            v_page.wait_for_timeout(350)
+            v_page.keyboard.press("Escape")
+            v_page.wait_for_timeout(300)
+        # Navigate between sections
+        _open_students_section(v_page)
+        set_theme(v_page, True)
+        v_page.wait_for_timeout(400)
+        set_theme(v_page, False)
+        v_page.wait_for_timeout(400)
+        # Open and close a modal
+        add_btn = v_page.locator("button:has-text('إضافة'):visible").first
+        if add_btn.count() > 0 and add_btn.is_visible():
+            add_btn.click()
+            v_page.wait_for_timeout(400)
+            v_page.keyboard.press("Escape")
+            v_page.wait_for_timeout(300)
+        menu_btn = v_page.locator("header button:visible").first
+        if menu_btn.count() > 0 and menu_btn.is_visible():
+            menu_btn.click()
+            v_page.wait_for_timeout(350)
+        v_page.locator(':text("لوحة التحكم"):visible').first.click()
+        v_page.wait_for_timeout(400)
+    finally:
+        v_ctx.close()
+        if video:
+            target = SCREENSHOT_DIR / "aurora-motion-demo.webm"
+            if target.exists():
+                target.unlink()
+            pathlib.Path(video.path()).replace(target)
+
+    # 2) Synthetic long-data student + 320px/390px/1440px responsive & WCAG AA audit
+    s_ctx = browser.new_context(viewport={"width": 320, "height": 568})
+    s_page = s_ctx.new_page()
+    try:
+        login_demo(s_page)
+        status_res = s_page.request.get(f"{BASE_URL}/api/auth/status")
+        demo_accounts = status_res.json()["demoAccounts"]
+        rep = next((a for a in demo_accounts if a.get("role") == "representative"), demo_accounts[0])
+        demo_res = s_page.request.post(f"{BASE_URL}/api/auth/demo-login", data={"userId": rep["id"]})
+        token = demo_res.json()["token"]
+        create_res = s_page.request.post(
+            f"{BASE_URL}/api/users",
+            data={
+                "universityId": "4450098765",
+                "fullName": "عبدالرحمن بن محمد بن عبدالعزيز القحطاني السبيعي الدوسري",
+                "email": "abdulrahman.mohammed.alqahtani.long.email@student.dblcampus.edu.sa",
+                "password": "AuditStudent#2026",
+                "role": "student",
+                "groupName": "المجموعة أ",
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        if not create_res.ok:
+            raise AssertionError(f"Failed to seed synthetic student: {create_res.status} {create_res.text()}")
+        s_page.reload(wait_until="networkidle")
+        _open_students_section(s_page)
+
+        set_theme(s_page, False)
+        assert_no_horizontal_overflow(s_page, "07-students-light-320px")
+        assert_no_ltr_token_wrap(s_page, "07-students-light-320px")
+        audit_live_dom_contrast(s_page, "07-students-light-320px")
+        s_page.screenshot(path=str(SCREENSHOT_DIR / "07-students-light-320px.png"), full_page=True)
+
+        s_page.set_viewport_size({"width": 390, "height": 844})
+        set_theme(s_page, True)
+        assert_no_horizontal_overflow(s_page, "08-students-dark-390px")
+        assert_no_ltr_token_wrap(s_page, "08-students-dark-390px")
+        audit_live_dom_contrast(s_page, "08-students-dark-390px")
+        s_page.screenshot(path=str(SCREENSHOT_DIR / "08-students-dark-390px.png"), full_page=True)
+
+        s_page.set_viewport_size({"width": 1440, "height": 900})
+        set_theme(s_page, False)
+        assert_no_horizontal_overflow(s_page, "09-students-light-desktop")
+        audit_live_dom_contrast(s_page, "09-students-light-desktop")
+        s_page.screenshot(path=str(SCREENSHOT_DIR / "09-students-light-desktop.png"), full_page=True)
+    finally:
+        s_ctx.close()
 
 
 if __name__ == "__main__":
