@@ -11,7 +11,7 @@ import {
   CheckSquare,
   Database,
   FolderOpen,
-  GraduationCap,
+   
   LayoutDashboard,
   LogOut,
   Menu,
@@ -25,6 +25,7 @@ import {
   X,
   User,
 } from 'lucide-react';
+import AuroraLogo from './components/AuroraLogo';
 import type {
   Announcement,
   Assignment,
@@ -438,7 +439,7 @@ const myEpoch = sessionEpochRef.current;
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300">
         <div className="text-center space-y-2">
-          <GraduationCap className="w-10 h-10 text-teal-600 mx-auto animate-bounce" />
+          <AuroraLogo size={56} animate={true} className="mx-auto" />
           <p className="text-sm font-bold">جاري تحميل منصة DBL Campus...</p>
         </div>
       </div>
@@ -481,7 +482,7 @@ const myEpoch = sessionEpochRef.current;
 
         <header className="safe-top flex items-center justify-between gap-2 sm:gap-6 px-3 sm:px-6 py-3 sm:py-4 border-b border-[var(--aurora-on-dark-border)] bg-[var(--aurora-chrome)] text-[var(--aurora-on-dark-text)]">
           <div className="flex items-center gap-2 whitespace-nowrap shrink-0">
-            <GraduationCap className="w-6 h-6 text-[#5EEAD4] shrink-0" />
+            <AuroraLogo size={28} animate={true} className="shrink-0" />
             <span className="text-base sm:text-lg font-bold tracking-tight">DBL Campus</span>
           </div>
 
@@ -512,7 +513,7 @@ const myEpoch = sessionEpochRef.current;
         <main className="max-w-5xl w-full mx-auto px-4 py-6 sm:py-10 grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-8 items-start">
           {/* Right Introductory Column */}
           <div className="order-2 lg:order-1 lg:col-span-6 space-y-3"><div className="aurora-hero rounded-2xl p-5 sm:p-6 text-white space-y-2.5 shadow-sm" style={{ background: 'var(--aurora-hero-gradient)' }}>
-            <p className="text-xs font-bold text-teal-300">
+            <AuroraLogo size={40} animate={true} className="mb-1" /><p className="text-xs font-bold text-teal-300">
               منصة إدارة الدفعات الجامعية المركزية عبر الإنترنت (HTTPS Multi-User Platform)
             </p>
             <h1 className="text-2xl sm:text-3xl font-bold text-white leading-tight break-words">
@@ -805,7 +806,7 @@ const myEpoch = sessionEpochRef.current;
       <aside className="no-print hidden lg:flex lg:flex-col lg:w-64 shrink-0 border-l border-[var(--aurora-border)] bg-[var(--aurora-surface)] justify-between">
         <div>
           <div className="px-6 py-5 border-b border-[var(--aurora-border)] flex items-center gap-2.5">
-            <GraduationCap className="w-6 h-6 text-teal-600 shrink-0" />
+            <AuroraLogo size={28} className="shrink-0" />
             <span className="text-lg font-bold tracking-tight whitespace-nowrap">
               DBL Campus
             </span>
@@ -910,7 +911,7 @@ const myEpoch = sessionEpochRef.current;
               <Menu className="w-4 h-4" />
             </button>
             <div className="flex lg:hidden items-center gap-1.5">
-              <GraduationCap className="w-5 h-5 text-[#14B8A6]" />
+              <AuroraLogo size={24} className="shrink-0" />
               <span className="font-bold text-sm whitespace-nowrap">DBL Campus</span>
             </div>
             <span className="hidden lg:inline text-xs font-semibold text-[var(--aurora-on-dark-text-muted)]">
@@ -1187,7 +1188,7 @@ const myEpoch = sessionEpochRef.current;
             <div className="space-y-4">
               <div className="flex items-center justify-between pb-3 border-b border-[var(--aurora-border)]">
                 <div className="flex items-center gap-2">
-                  <GraduationCap className="w-5 h-5 text-[#14B8A6]" />
+                  <AuroraLogo size={24} className="shrink-0" />
                   <span className="font-bold text-base">DBL Campus</span>
                 </div>
                 <button
