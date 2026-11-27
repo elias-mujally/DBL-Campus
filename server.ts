@@ -508,7 +508,7 @@ function mapInvitationRow(row: DbInvitationCodeRow | undefined) {
 
 app.get('/api/admin/invitation-code', requireAuth, (req, res) => {
   const actor = (req as express.Request & { user: UserAccount }).user;
-  if (!hasPermission(actor, 'students')) {
+  if (!(actor.role === 'representative' || hasPermission(actor, 'permissions'))) {
     res.status(403).json({ error: 'Forbidden' });
     return;
   }
@@ -525,7 +525,7 @@ app.get('/api/admin/invitation-code', requireAuth, (req, res) => {
 
 app.post('/api/admin/invitation-code', requireAuth, (req, res) => {
   const actor = (req as express.Request & { user: UserAccount }).user;
-  if (!hasPermission(actor, 'students')) {
+  if (!(actor.role === 'representative' || hasPermission(actor, 'permissions'))) {
     res.status(403).json({ error: 'Forbidden' });
     return;
   }
@@ -558,7 +558,7 @@ app.post('/api/admin/invitation-code', requireAuth, (req, res) => {
 
 app.patch('/api/admin/invitation-code', requireAuth, (req, res) => {
   const actor = (req as express.Request & { user: UserAccount }).user;
-  if (!hasPermission(actor, 'students')) {
+  if (!(actor.role === 'representative' || hasPermission(actor, 'permissions'))) {
     res.status(403).json({ error: 'Forbidden' });
     return;
   }
