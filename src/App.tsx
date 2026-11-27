@@ -75,7 +75,14 @@ export default function App() {
   // Login form state
   const [loginIdentifier, setLoginIdentifier] = useState('rep@demo.dbl.local');
   const [loginPassword, setLoginPassword] = useState('Demo@2026');
-
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [regFullName, setRegFullName] = useState('');
+const [regUniversityId, setRegUniversityId] = useState('');
+const [regPassword, setRegPassword] = useState('');
+const [regConfirmPassword, setRegConfirmPassword] = useState('');
+const [regInvitationCode, setRegInvitationCode] = useState('');
+const [regSubmitting, setRegSubmitting] = useState(false);
+  
   // Production First-Run Setup form state
   const [setupUniId, setSetupUniId] = useState('');
   const [setupName, setSetupName] = useState('');
@@ -344,6 +351,35 @@ const myEpoch = sessionEpochRef.current;
     }
   };
 
+  const handleStudentRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (regPassword !== regConfirmPassword) {
+      notify('كلمتا المرور غير متطابقتين', 'error');
+      return;
+    }
+    setRegSubmitting(true);
+    try {
+      const res = await apiFetch<{ token: string; user: UserAccount }>('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          fullName: regFullName.trim(),
+          universityId: regUniversityId.trim(),
+          password: regPassword,
+          confirmPassword: regConfirmPassword,
+          invitationCode: regInvitationCode.trim().toUpperCase(),
+        }),
+      });
+      switchSession(res.token, res.user);
+      setActiveTab('dashboard');
+      await loadAllCohortData();
+      notify(`مرحباً بك ${res.user.fullName}`);
+    } catch (err: unknown) {
+      notify(err instanceof Error ? err.message : 'تعذر إنشاء الحساب', 'error');
+    } finally {
+      setRegSubmitting(false);
+    }
+  };
+  
   const handleQuickDemoSwitch = async (targetUserId: string) => {
     try {
       const res = await apiFetch<{ token: string; user: UserAccount }>('/api/auth/demo-login', {
@@ -619,6 +655,41 @@ const myEpoch = sessionEpochRef.current;
             )}
 
             {authTab === 'login' && (
+            <div className="space-y-4">
+              <div
+                role="tablist"
+                aria-label="وضع المصادقة"
+                className="grid grid-cols-2 gap-1.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-2)] p-1 text-xs"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={authMode === 'login'}
+                  onClick={() => setAuthMode('login')}
+                  className={`min-h-[40px] rounded-lg px-3 py-2 font-bold transition-all aurora-btn-motion ${
+                    authMode === 'login'
+                      ? 'bg-[#635BDB] text-white shadow-sm'
+                      : 'text-slate-700 dark:text-slate-200 hover:bg-[var(--aurora-surface)]'
+                  }`}
+                >
+                  تسجيل الدخول
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={authMode === 'register'}
+                  onClick={() => setAuthMode('register')}
+                  className={`min-h-[40px] rounded-lg px-3 py-2 font-bold transition-all aurora-btn-motion ${
+                    authMode === 'register'
+                      ? 'bg-[#635BDB] text-white shadow-sm'
+                      : 'text-slate-700 dark:text-slate-200 hover:bg-[var(--aurora-surface)]'
+                  }`}
+                >
+                  إنشاء حساب
+                </button>
+              </div>
+              {authMode === 'login' ? (
+              
               <form onSubmit={handleStandardLogin} className="space-y-4 text-xs">
                 <div>
                   <label className="block font-semibold mb-1.5">
@@ -652,6 +723,87 @@ const myEpoch = sessionEpochRef.current;
                   تسجيل الدخول إلى المنصة
                 </button>
               </form>
+              ) : (
+                <form onSubmit={handleStudentRegister} className="space-y-4 text-xs">
+                  <div>
+                    <label className="block font-semibold mb-1.5 text-slate-800 dark:text-slate-100">
+                      الاسم الكامل
+                    </label>
+                    <input
+                      type="text"
+                      value={regFullName}
+                      onChange={(e) => setRegFullName(e.target.value)}
+                      autoComplete="name"
+                      required
+                      placeholder="أدخل اسمك الكامل"
+                      className="w-full rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-2)] px-3.5 py-2.5 text-slate-900 dark:text-slate-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold mb-1.5 text-slate-800 dark:text-slate-100">
+                      الرقم الجامعي
+                    </label>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={regUniversityId}
+                      onChange={(e) => setRegUniversityId(e.target.value)}
+                      autoComplete="username"
+                      required
+                      placeholder="20251001"
+                      className="w-full rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-2)] px-3.5 py-2.5 font-mono text-slate-900 dark:text-slate-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold mb-1.5 text-slate-800 dark:text-slate-100">
+                      كلمة المرور
+                    </label>
+                    <input
+                      type="password"
+                      value={regPassword}
+                      onChange={(e) => setRegPassword(e.target.value)}
+                      autoComplete="new-password"
+                      required
+                      className="w-full rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-2)] px-3.5 py-2.5 font-mono text-slate-900 dark:text-slate-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold mb-1.5 text-slate-800 dark:text-slate-100">
+                      تأكيد كلمة المرور
+                    </label>
+                    <input
+                      type="password"
+                      value={regConfirmPassword}
+                      onChange={(e) => setRegConfirmPassword(e.target.value)}
+                      autoComplete="new-password"
+                      required
+                      className="w-full rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-2)] px-3.5 py-2.5 font-mono text-slate-900 dark:text-slate-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold mb-1.5 text-slate-800 dark:text-slate-100">
+                      رمز الدعوة
+                    </label>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={regInvitationCode}
+                      onChange={(e) => setRegInvitationCode(e.target.value.toUpperCase())}
+                      required
+                      placeholder="DBL-XXXX-XXXX"
+                      className="w-full rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-2)] px-3.5 py-2.5 font-mono uppercase text-slate-900 dark:text-slate-100"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={regSubmitting}
+                    className="w-full min-h-[40px] py-2.5 rounded-lg bg-[#635BDB] text-white font-bold hover:bg-[#5249C9] disabled:opacity-60 transition-colors aurora-btn-motion"
+                  >
+                    {regSubmitting ? 'جاري إنشاء الحساب...' : 'إنشاء حساب والدخول'}
+                  </button>
+                </form>
+              )}
+            </div>
             )}
 
             {authTab === 'setup' && !hasProdRep && (
