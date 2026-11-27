@@ -18,7 +18,7 @@ process.env.DBL_SKIP_LISTEN = '1';
 
 const { app } = await import('../../server.ts');
 const { db, seedDemoEnvironment } = await import('./db.ts');
-const { hashPassword } = await import('./security.ts');
+const { hashPassword } = await import('./db.ts');
 
 seedDemoEnvironment(true);
 
