@@ -170,26 +170,41 @@ public class EndToEndSessionTest {
     assertNotNull("Expected demoAccounts in /api/auth/status", demoAccounts);
     assertTrue("Expected at least one demo account", demoAccounts.length() > 0);
 
-    String selectedUserId = null;
+       String repUserId = null;
     for (int i = 0; i < demoAccounts.length(); i++) {
       JSONObject acc = demoAccounts.getJSONObject(i);
-      if ("student".equals(acc.optString("role"))) {
-        selectedUserId = acc.has("id") ? acc.getString("id") : acc.getString("userId");
+      if ("representative".equals(acc.optString("role"))) {
+        repUserId = acc.has("id") ? acc.getString("id") : acc.getString("userId");
         break;
       }
     }
-    if (selectedUserId == null) {
-      JSONObject first = demoAccounts.getJSONObject(0);
-      selectedUserId = first.has("id") ? first.getString("id") : first.getString("userId");
-    }
+    assertNotNull("Expected representative demo account in /api/auth/status", repUserId);
 
-    JSONObject loginBody = new JSONObject();
-    loginBody.put("userId", selectedUserId);
-    JSONObject loginResp = httpPost("/api/auth/demo-login", loginBody, null);
-    String token = loginResp.optString("token", "");
-    JSONObject user = loginResp.optJSONObject("user");
-    assertFalse("Expected non-empty token from demo-login", token.isEmpty());
-    assertNotNull("Expected user object from demo-login", user);
+    JSONObject repLoginBody = new JSONObject();
+    repLoginBody.put("userId", repUserId);
+    JSONObject repLoginResp = httpPost("/api/auth/demo-login", repLoginBody, null);
+    String repToken = repLoginResp.optString("token", "");
+    assertFalse("Expected non-empty representative token from demo-login", repToken.isEmpty());
+
+    JSONObject invResp = httpPost("/api/admin/invitation-code", new JSONObject(), repToken);
+    String invitationCode = invResp.getJSONObject("invitation").getString("code");
+    assertFalse("Expected non-empty invitation code", invitationCode.isEmpty());
+
+    String uniqueUniId = "2026" + (System.currentTimeMillis() % 1000000L);
+    JSONObject registerBody = new JSONObject();
+    registerBody.put("fullName", "E2E Self Registered Student");
+    registerBody.put("universityId", uniqueUniId);
+    registerBody.put("password", "Str0ngPass!2026");
+    registerBody.put("confirmPassword", "Str0ngPass!2026");
+    registerBody.put("invitationCode", invitationCode);
+    registerBody.put("groupName", "Group A");
+
+    JSONObject regResp = httpPost("/api/auth/register", registerBody, null);
+    String token = regResp.optString("token", "");
+    JSONObject user = regResp.optJSONObject("user");
+    assertFalse("Expected non-empty token from /api/auth/register", token.isEmpty());
+    assertNotNull("Expected user object from /api/auth/register", user);
+    assertEquals("student", user.optString("role"));
 
     try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
       CountDownLatch storeLatch = new CountDownLatch(1);

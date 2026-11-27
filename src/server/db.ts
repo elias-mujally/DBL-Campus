@@ -271,6 +271,19 @@ export function runMigrations(): void {
       details TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+
+CREATE TABLE IF NOT EXISTS invitation_codes (
+  id TEXT PRIMARY KEY,
+  code_hash TEXT UNIQUE NOT NULL,
+  code_display TEXT NOT NULL,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  expires_at TEXT,
+  uses_count INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_invitation_codes_active ON invitation_codes(is_active, created_at);
   `);
   if (db.pragma('user_version', { simple: true }) === 0) {
     db.transaction(() => {
@@ -300,6 +313,25 @@ export function runMigrations(): void {
         }
       }
       db.pragma('user_version = 3');
+    })();
+  }
+  if (db.pragma('user_version', { simple: true }) === 3) {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS invitation_codes (
+          id TEXT PRIMARY KEY,
+          code_hash TEXT UNIQUE NOT NULL,
+          code_display TEXT NOT NULL,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          expires_at TEXT,
+          uses_count INTEGER NOT NULL DEFAULT 0,
+          created_by TEXT NOT NULL REFERENCES users(id),
+          created_at TEXT NOT NULL,
+          revoked_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_invitation_codes_active ON invitation_codes(is_active, created_at);
+      `);
+      db.pragma('user_version = 4');
     })();
   }
 }
