@@ -1,7 +1,7 @@
 apply plugin: 'com.android.application'
 
-def dblVersionCode = project.hasProperty('dblVersionCode') ? project.property('dblVersionCode').toInteger() :10401
-def dblVersionName = project.hasProperty('dblVersionName') ? project.property('dblVersionName').toString() : "1.4.1"
+def dblVersionCode = project.hasProperty('dblVersionCode') ? project.property('dblVersionCode').toInteger() :10500
+def dblVersionName = project.hasProperty('dblVersionName') ? project.property('dblVersionName').toString() : "1.5.0"
 
 android {
     namespace = "edu.dbl.campus"
