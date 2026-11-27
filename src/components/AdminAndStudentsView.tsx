@@ -65,6 +65,7 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
   notify,
 }) => {
   const canManageStudents = hasPermission(user, 'students');
+  const canManageInvitations = user.role === 'representative' || hasPermission(user, 'permissions');
   const isRepresentative = user.role === 'representative';
   const [invitationCode, setInvitationCode] = useState<InvitationCodeData | null>(null);
   const [inviteLoading, setInviteLoading] = useState(false);
@@ -73,7 +74,7 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
   const [inviteCopied, setInviteCopied] = useState(false);
 
   useEffect(() => {
-    if (mode !== 'students' || !canManageStudents) return;
+    if (mode !== 'students' || !canManageInvitations) return;
     let active = true;
     setInviteLoading(true);
     apiFetch<{ invitation: InvitationCodeData | null }>('/api/admin/invitation-code')
@@ -89,7 +90,7 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
     return () => {
       active = false;
     };
-  }, [mode, canManageStudents]);
+  }, [mode, canManageInvitations]);
 
   const handleGenerateInvitation = async () => {
     setInviteSaving(true);
@@ -568,7 +569,7 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
           </div>
         )}
       </div>
-      {canManageStudents && (
+      {canManageInvitations && (
         <section
           aria-labelledby="invitation-code-heading"
           className="rounded-2xl border border-[var(--aurora-border)] bg-[var(--aurora-surface)] p-4 sm:p-5 shadow-sm space-y-4"
