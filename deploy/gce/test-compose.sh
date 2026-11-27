@@ -25,8 +25,13 @@ docker build -t "$CAMPUS_IMAGE" .
   (.services.app.mem_limit == "536870912" or .services.app.mem_limit == 536870912) and
   ([.services.app.volumes[] | select(.target == "/data" and .type=="bind")] | length == 1)'
 "${compose[@]}" up -d --wait --no-build
+bash deploy/gce/wait-origin.sh
 fixture=(python3 deploy/gce/acceptance.py)
 target=http://127.0.0.1:8080
+redirect="$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' -H 'X-Forwarded-Proto: http' "$target/api/health")"
+[[ "$redirect" == '308 https://campus.example.net/api/health' ]]
+headers="$(curl -fsS -D - -o /dev/null "$target/api/health")"
+grep -Eiq '^Cache-Control: private, no-store[[:space:]]*$' <<<"$headers"
 "${fixture[@]}" seed "$target" "$work/state.json" --backup "$work/backup.json" --ci-loopback
 "${compose[@]}" restart app
 "${compose[@]}" up -d --wait --no-build

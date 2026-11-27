@@ -6,6 +6,13 @@
 	request_body {
 		max_size 100MB
 	}
+	# The local connector forwards the scheme set by Cloudflare's edge.
+	@edgePlain header X-Forwarded-Proto http
+	redir @edgePlain https://{$DOMAIN}{uri} 308
+	header /api/* {
+		Cache-Control "private, no-store"
+		defer
+	}
 	# Only the host-local tunnel connector can send requests to this listener.
 	@cloudflare header CF-Connecting-IP *
 	handle @cloudflare {
