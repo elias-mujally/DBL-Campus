@@ -19,6 +19,7 @@ process.env.DBL_SKIP_LISTEN = '1';
 const { app } = await import('../../server.ts');
 const { db, seedDemoEnvironment } = await import('./db.ts');
 const { hashPassword } = await import('./db.ts');
+const { hashSessionToken } = await import('./security.ts');
 
 seedDemoEnvironment(true);
 
@@ -393,12 +394,12 @@ test('preserves backward compatibility for legacy accounts, sessions, /api/auth/
 
   db.prepare(
     `INSERT INTO users (id, university_id, full_name, email, password_hash, role, group_name, responsibilities_json, is_active, is_demo, created_at)
-     VALUES (?, ?, ?, ?, ?, 'student', 'Group A', '[]', 1, 0, ?)`
+     VALUES (?, ?, ?, ?, ?, 'student', 'Group A', '[]', 1, 1, ?)`
   ).run('u-legacy-1', '20240001', 'Legacy Student', 'legacy@dbl.edu', legacyPassHash, now);
 
   db.prepare(
     `INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)`
-  ).run('legacy-session-token-1', 'u-legacy-1', now, future);
+  ).run(hashSessionToken('legacy-session-token-1'), 'u-legacy-1', now, future);
 
   const statusRes = await api('/api/auth/status', { token: 'legacy-session-token-1' });
   assert.equal(statusRes.status, 200);
