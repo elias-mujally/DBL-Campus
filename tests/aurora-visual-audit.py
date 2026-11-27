@@ -254,6 +254,9 @@ def main() -> None:
                     assert_no_horizontal_overflow(m_page, "02-login-dark-mobile")
                     m_page.screenshot(path=str(SCREENSHOT_DIR / "02-login-dark-mobile.png"), full_page=True)
                     audit_live_dom_contrast(m_page, "02-login-dark-mobile")
+                    if m_page.locator('[role="tablist"]').count() == 0:
+                        m_page.locator('.rounded-lg.mb-5 button').nth(1).click()
+                        m_page.wait_for_timeout(150)
                     m_page.locator('[role="tablist"] button').nth(1).click()
                     m_page.wait_for_timeout(200)
                     set_theme(m_page, False)
@@ -261,6 +264,9 @@ def main() -> None:
                     m_page.screenshot(path=str(SCREENSHOT_DIR / "10-register-light-mobile.png"), full_page=True)
                     audit_live_dom_contrast(m_page, "10-register-light-mobile")
                     ctx_mobile.close()
+                    if page.locator('[role="tablist"]').count() == 0:
+                        page.locator('.rounded-lg.mb-5 button').nth(1).click()
+                        page.wait_for_timeout(150)
                     page.locator('[role="tablist"] button').nth(1).click()
                     page.wait_for_timeout(200)
                     set_theme(page, True)
