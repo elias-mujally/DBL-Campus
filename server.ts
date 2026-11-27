@@ -674,8 +674,8 @@ app.post('/api/auth/register', (req, res) => {
     db.transaction(() => {
       db.prepare(
         `INSERT INTO users (id, university_id, full_name, email, password_hash, role, group_name, responsibilities_json, is_active, is_demo, must_change_password, created_at)
-         VALUES (?, ?, ?, ?, ?, 'student', ?, '[]', 1, 0, 0, ?)`
-      ).run(id, cleanUniId, cleanFullName, derivedEmail, hashPassword(rawPassword), cleanGroup, now);
+         VALUES (?, ?, ?, ?, ?, 'student', ?, '[]', 1, ?, 0, ?)`
+      ).run(id, cleanUniId, cleanFullName, derivedEmail, hashPassword(rawPassword), cleanGroup, isDemoModeEnabled() ? 1 : 0, now);
 
       db.prepare('UPDATE invitation_codes SET uses_count = uses_count + 1 WHERE id = ?').run(activeInv.id);
     })();
