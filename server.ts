@@ -151,6 +151,8 @@ const loginIpLimiter = createRateLimiter({ windowMs: 60_000, max: 30 });
 const loginRateLimiter = createRateLimiter({ windowMs: 60_000, max: 10 });
 const setupRateLimiter = createRateLimiter({ windowMs: 300_000, max: 5 });
 const writeRateLimiter = createRateLimiter({ windowMs: 60_000, max: 180 });
+const registerIpLimiter = createRateLimiter({ windowMs: 60_000, max: 15 });
+const registerCodeLimiter = createRateLimiter({ windowMs: 300_000, max: 8 });
 
 app.use('/api', (req, res, next) => {
   if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS') {
@@ -463,6 +465,234 @@ app.post('/api/auth/setup-production-rep', (req, res) => {
         ? 'الرقم الجامعي أو البريد الإلكتروني مسجل مسبقاً.'
         : 'تعذر إنشاء الحساب.',
     });
+  }
+});
+
+interface DbInvitationCodeRow {
+  id: string;
+  code_hash: string;
+  code_display: string;
+  is_active: number;
+  expires_at: string | null;
+  uses_count: number;
+  created_by: string;
+  created_at: string;
+  revoked_at: string | null;
+}
+
+function generateSecureInvitationCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = crypto.randomBytes(8);
+  let part1 = '';
+  let part2 = '';
+  for (let i = 0; i < 4; i++) {
+    part1 += chars[bytes[i] % chars.length];
+    part2 += chars[bytes[i + 4] % chars.length];
+  }
+  return `DBL-${part1}-${part2}`;
+}
+
+function mapInvitationRow(row: DbInvitationCodeRow | undefined) {
+  if (!row) return null;
+  const isExpired = Boolean(row.expires_at && new Date(row.expires_at).getTime() <= Date.now());
+  return {
+    id: row.id,
+    code: row.code_display,
+    isActive: Boolean(row.is_active),
+    expiresAt: row.expires_at,
+    isExpired,
+    usesCount: row.uses_count,
+    createdAt: row.created_at,
+  };
+}
+
+app.get('/api/admin/invitation-code', requireAuth, (req, res) => {
+  const actor = (req as express.Request & { user: UserAccount }).user;
+  if (!hasPermission(actor, 'students')) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+  const activeRow = db
+    .prepare('SELECT * FROM invitation_codes WHERE is_active = 1 ORDER BY created_at DESC LIMIT 1')
+    .get() as DbInvitationCodeRow | undefined;
+  const row =
+    activeRow ||
+    (db
+      .prepare('SELECT * FROM invitation_codes ORDER BY created_at DESC LIMIT 1')
+      .get() as DbInvitationCodeRow | undefined);
+  res.json({ invitation: mapInvitationRow(row) });
+});
+
+app.post('/api/admin/invitation-code', requireAuth, (req, res) => {
+  const actor = (req as express.Request & { user: UserAccount }).user;
+  if (!hasPermission(actor, 'students')) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+
+  const { expiresInDays } = (req.body || {}) as { expiresInDays?: number | null };
+  let expiresAt: string | null = null;
+  if (typeof expiresInDays === 'number' && Number.isFinite(expiresInDays) && expiresInDays > 0) {
+    expiresAt = new Date(Date.now() + expiresInDays * 86_400_000).toISOString();
+  }
+
+  const id = `inv-${crypto.randomUUID().slice(0, 12)}`;
+  const code = generateSecureInvitationCode();
+  const codeHash = hashSessionToken(code);
+  const now = new Date().toISOString();
+
+  db.transaction(() => {
+    db.prepare(
+      "UPDATE invitation_codes SET is_active = 0, revoked_at = ?, code_display = '' WHERE is_active = 1"
+    ).run(now);
+    db.prepare(
+      `INSERT INTO invitation_codes (id, code_hash, code_display, is_active, expires_at, uses_count, created_by, created_at, revoked_at)
+       VALUES (?, ?, ?, 1, ?, 0, ?, ?, NULL)`
+    ).run(id, codeHash, code, expiresAt, actor.id, now);
+  })();
+
+  logAudit(actor, 'ROTATE_INVITATION_CODE', 'invitation_code', id, 'Rotated student invitation code');
+  const created = db.prepare('SELECT * FROM invitation_codes WHERE id = ?').get(id) as DbInvitationCodeRow;
+  res.status(201).json({ invitation: mapInvitationRow(created) });
+});
+
+app.patch('/api/admin/invitation-code', requireAuth, (req, res) => {
+  const actor = (req as express.Request & { user: UserAccount }).user;
+  if (!hasPermission(actor, 'students')) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+
+  const current =
+    (db
+      .prepare('SELECT * FROM invitation_codes WHERE is_active = 1 ORDER BY created_at DESC LIMIT 1')
+      .get() as DbInvitationCodeRow | undefined) ||
+    (db
+      .prepare('SELECT * FROM invitation_codes ORDER BY created_at DESC LIMIT 1')
+      .get() as DbInvitationCodeRow | undefined);
+
+  if (!current) {
+    res.status(404).json({ error: 'No invitation code found.' });
+    return;
+  }
+
+  const { isActive, expiresInDays, expiresAt } = (req.body || {}) as {
+    isActive?: boolean;
+    expiresInDays?: number | null;
+    expiresAt?: string | null;
+  };
+
+  let nextActive = current.is_active;
+  let nextRevokedAt = current.revoked_at;
+  if (typeof isActive === 'boolean') {
+    nextActive = isActive ? 1 : 0;
+    nextRevokedAt = isActive ? null : new Date().toISOString();
+  }
+
+  let nextExpiresAt = current.expires_at;
+  if (expiresInDays !== undefined) {
+    if (expiresInDays === null) {
+      nextExpiresAt = null;
+    } else if (typeof expiresInDays === 'number' && Number.isFinite(expiresInDays) && expiresInDays > 0) {
+      nextExpiresAt = new Date(Date.now() + expiresInDays * 86_400_000).toISOString();
+    }
+  } else if (expiresAt !== undefined) {
+    nextExpiresAt = expiresAt ? String(expiresAt) : null;
+  }
+
+  db.prepare(
+    'UPDATE invitation_codes SET is_active = ?, expires_at = ?, revoked_at = ? WHERE id = ?'
+  ).run(nextActive, nextExpiresAt, nextRevokedAt, current.id);
+
+  logAudit(actor, 'UPDATE_INVITATION_CODE', 'invitation_code', current.id, 'Updated student invitation code status or expiry');
+  const updated = db.prepare('SELECT * FROM invitation_codes WHERE id = ?').get(current.id) as DbInvitationCodeRow;
+  res.json({ invitation: mapInvitationRow(updated) });
+});
+
+app.post('/api/auth/register', (req, res) => {
+  const clientIp = req.ip || 'local';
+  if (!registerIpLimiter.allow(clientIp)) {
+    res.status(429).json({ error: 'Too many registration attempts. Please try again later.' });
+    return;
+  }
+
+  const { fullName, universityId, password, confirmPassword, invitationCode, groupName } = (req.body || {}) as {
+    fullName?: string;
+    universityId?: string;
+    password?: string;
+    confirmPassword?: string;
+    invitationCode?: string;
+    groupName?: string;
+  };
+
+  const normalizedCode = String(invitationCode || '').trim().toUpperCase();
+  if (!registerCodeLimiter.allow(`${clientIp}:${normalizedCode || 'empty'}`)) {
+    res.status(429).json({ error: 'Too many registration attempts for this code. Please try again later.' });
+    return;
+  }
+
+  const cleanFullName = String(fullName || '').trim();
+  const cleanUniId = String(universityId || '').trim();
+  const rawPassword = String(password || '');
+  const rawConfirm = String(confirmPassword || '');
+
+  if (!cleanFullName || !cleanUniId || !rawPassword || !isValidPassword(rawPassword)) {
+    res.status(400).json({ error: 'Invalid registration details or password.' });
+    return;
+  }
+  if (rawPassword !== rawConfirm) {
+    res.status(400).json({ error: 'Passwords do not match.' });
+    return;
+  }
+  if (!normalizedCode) {
+    res.status(400).json({ error: 'Invitation code is required.' });
+    return;
+  }
+
+  const providedHash = hashSessionToken(normalizedCode);
+  const activeInv = db
+    .prepare('SELECT * FROM invitation_codes WHERE is_active = 1 ORDER BY created_at DESC LIMIT 1')
+    .get() as DbInvitationCodeRow | undefined;
+
+  const isExpired = Boolean(activeInv?.expires_at && new Date(activeInv.expires_at).getTime() <= Date.now());
+  if (
+    !activeInv ||
+    activeInv.revoked_at !== null ||
+    isExpired ||
+    !timingSafeStringEqual(providedHash, activeInv.code_hash)
+  ) {
+    res.status(400).json({ error: 'Invalid, inactive, or expired invitation code.' });
+    return;
+  }
+
+  const id = `u-stu-${crypto.randomUUID().slice(0, 8)}`;
+  const now = new Date().toISOString();
+  const derivedEmail = `${cleanUniId.toLowerCase().replace(/[^a-z0-9._-]/g, '') || id}@student.campus.local`;
+  const cleanGroup = String(groupName || 'A').trim() || 'A';
+
+  try {
+    db.transaction(() => {
+      db.prepare(
+        `INSERT INTO users (id, university_id, full_name, email, password_hash, role, group_name, responsibilities_json, is_active, is_demo, must_change_password, created_at)
+         VALUES (?, ?, ?, ?, ?, 'student', ?, '[]', 1, 0, 0, ?)`
+      ).run(id, cleanUniId, cleanFullName, derivedEmail, hashPassword(rawPassword), cleanGroup, now);
+
+      db.prepare('UPDATE invitation_codes SET uses_count = uses_count + 1 WHERE id = ?').run(activeInv.id);
+    })();
+
+    const createdRow = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as DbUserRow;
+    const user = mapUserRow(createdRow);
+    const token = createSessionToken(user.id);
+    logAudit(user, 'SELF_REGISTER_STUDENT', 'user', user.id, 'Student self-registered with invitation code');
+    res.status(201).json({ token, user });
+  } catch (err: unknown) {
+    const code = (err as { code?: string })?.code;
+    const msg = err instanceof Error ? err.message : '';
+    if (code === 'SQLITE_CONSTRAINT_UNIQUE' || msg.includes('UNIQUE')) {
+      res.status(409).json({ error: 'University ID or email is already registered.' });
+      return;
+    }
+    res.status(400).json({ error: 'Registration failed.' });
   }
 });
 
@@ -2557,9 +2787,19 @@ async function startServer(): Promise<void> {
     app.use(
       express.static(distPath, {
         setHeaders(res, filePath) {
+          const baseName = path.basename(filePath);
           if (filePath.includes(`${path.sep}assets${path.sep}`)) {
             res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
           } else if (filePath.endsWith('index.html') || filePath.endsWith('registerSW.js')) {
+            res.setHeader('Cache-Control', 'no-cache');
+          } else if (
+            baseName === 'aurora-logo.png' ||
+            baseName === 'favicon.ico' ||
+            baseName === 'favicon-32x32.png' ||
+            baseName === 'icon.svg' ||
+            baseName === 'apple-touch-icon.png' ||
+            /^pwa-.*\.png$/.test(baseName)
+          ) {
             res.setHeader('Cache-Control', 'no-cache');
           }
         },
