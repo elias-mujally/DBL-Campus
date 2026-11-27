@@ -1,6 +1,10 @@
 import { csvCell } from '../utils/rosterCsv';
 import React, { useEffect, useState } from 'react';
 import {
+  Check,
+  Copy,
+  KeyRound,
+  Share2,
   Database,
   Download,
   FileSpreadsheet,
@@ -42,6 +46,16 @@ const ALL_RESPONSIBILITY_KEYS: ResponsibilityKey[] = [
   'permissions',
   'backup',
 ];
+interface InvitationCodeData {
+  id: string;
+  code: string;
+  isActive: boolean;
+  expiresAt: string | null;
+  isExpired: boolean;
+  usesCount: number;
+  createdAt: string;
+}
+
 
 export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
   user,
@@ -52,7 +66,94 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
 }) => {
   const canManageStudents = hasPermission(user, 'students');
   const isRepresentative = user.role === 'representative';
+  const [invitationCode, setInvitationCode] = useState<InvitationCodeData | null>(null);
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteSaving, setInviteSaving] = useState(false);
+  const [inviteDuration, setInviteDuration] = useState<'7' | '14' | '30' | 'none'>('14');
+  const [inviteCopied, setInviteCopied] = useState(false);
 
+  useEffect(() => {
+    if (mode !== 'students' || !canManageStudents) return;
+    let active = true;
+    setInviteLoading(true);
+    apiFetch<{ invitation: InvitationCodeData | null }>('/api/admin/invitation-code')
+      .then((res) => {
+        if (active) setInvitationCode(res.invitation ?? null);
+      })
+      .catch((err: unknown) => {
+        if (active) notify(err instanceof Error ? err.message : 'تعذر تحميل رمز الدعوة', 'error');
+      })
+      .finally(() => {
+        if (active) setInviteLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [mode, canManageStudents]);
+
+  const handleGenerateInvitation = async () => {
+    setInviteSaving(true);
+    try {
+      const expiresInDays = inviteDuration === 'none' ? null : Number(inviteDuration);
+      const res = await apiFetch<{ invitation: InvitationCodeData }>('/api/admin/invitation-code', {
+        method: 'POST',
+        body: JSON.stringify({ expiresInDays }),
+      });
+      setInvitationCode(res.invitation);
+      notify('تم إنشاء رمز الدعوة وتحديثه بنجاح');
+    } catch (err: unknown) {
+      notify(err instanceof Error ? err.message : 'تعذر إنشاء رمز الدعوة', 'error');
+    } finally {
+      setInviteSaving(false);
+    }
+  };
+
+  const handleToggleInvitation = async () => {
+    if (!invitationCode) return;
+    setInviteSaving(true);
+    try {
+      const res = await apiFetch<{ invitation: InvitationCodeData }>('/api/admin/invitation-code', {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: !invitationCode.isActive }),
+      });
+      setInvitationCode(res.invitation);
+      notify(res.invitation.isActive ? 'تم تفعيل رمز الدعوة' : 'تم تعطيل رمز الدعوة');
+    } catch (err: unknown) {
+      notify(err instanceof Error ? err.message : 'تعذر تحديث حالة الرمز', 'error');
+    } finally {
+      setInviteSaving(false);
+    }
+  };
+
+  const handleCopyInvitation = async () => {
+    if (!invitationCode) return;
+    try {
+      await navigator.clipboard.writeText(invitationCode.code);
+      setInviteCopied(true);
+      notify('تم نسخ رمز الدعوة');
+      setTimeout(() => setInviteCopied(false), 2000);
+    } catch {
+      notify('تعذر نسخ رمز الدعوة', 'error');
+    }
+  };
+
+  const handleShareInvitation = async () => {
+    if (!invitationCode) return;
+    const shareText = `رمز الدعوة للتسجيل الذاتي في الدفعة: ${invitationCode.code}`;
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({
+          title: 'رمز الدعوة للتسجيل الذاتي',
+          text: shareText,
+        });
+        return;
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'AbortError') return;
+      }
+    }
+    await handleCopyInvitation();
+  };
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [groupFilter, setGroupFilter] = useState('ALL');
   const [roleFilter, setRoleFilter] = useState('ALL');
@@ -467,7 +568,139 @@ export const AdminAndStudentsView: React.FC<AdminAndStudentsViewProps> = ({
           </div>
         )}
       </div>
+      {canManageStudents && (
+        <section
+          aria-labelledby="invitation-code-heading"
+          className="rounded-2xl border border-[var(--aurora-border)] bg-[var(--aurora-surface)] p-4 sm:p-5 shadow-sm space-y-4"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-[#635BDB]/15 text-[#4F46E5] dark:text-[#A5B4FC] flex items-center justify-center shrink-0">
+                <KeyRound className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h2
+                  id="invitation-code-heading"
+                  className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100"
+                >
+                  رمز الدعوة للتسجيل الذاتي
+                </h2>
+                <p className="text-xs text-slate-600 dark:text-slate-300">
+                  شارك الرمز مع طلاب الدفعة لإنشاء حساباتهم مباشرةً.
+                </p>
+              </div>
+            </div>
+            {invitationCode && (
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span
+                  className={`inline-flex items-center rounded-full px-2.5 py-1 font-bold ${
+                    invitationCode.isExpired
+                      ? 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200'
+                      : invitationCode.isActive
+                      ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-200'
+                      : 'bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-200'
+                  }`}
+                >
+                  {invitationCode.isExpired
+                    ? 'منتهي الصلاحية'
+                    : invitationCode.isActive
+                    ? 'مفعّل'
+                    : 'معطّل'}
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full border border-[var(--aurora-border)] bg-[var(--aurora-surface-2)] px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-200 tabular-nums">
+                  المسجلون: {invitationCode.usesCount}
+                </span>
+              </div>
+            )}
+          </div>
 
+          {inviteLoading ? (
+            <div className="text-xs text-slate-600 dark:text-slate-300 py-2">
+              جاري تحميل رمز الدعوة...
+            </div>
+          ) : invitationCode ? (
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-2)] p-3">
+              <div className="space-y-1 min-w-0">
+                <div className="aurora-ltr-token font-mono text-base sm:text-lg font-extrabold tracking-wider text-slate-900 dark:text-white break-all">
+                  {invitationCode.code}
+                </div>
+                <div className="text-xs text-slate-600 dark:text-slate-300">
+                  تاريخ الانتهاء:{' '}
+                  <span className="font-semibold text-slate-800 dark:text-slate-100 tabular-nums">
+                    {invitationCode.expiresAt
+                      ? new Date(invitationCode.expiresAt).toLocaleDateString('ar-YE', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                        })
+                      : 'بدون انتهاء'}
+                  </span>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyInvitation}
+                  className="min-h-[40px] aurora-btn-motion inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface)] px-3 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 hover:border-[#635BDB]"
+                >
+                  {inviteCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{inviteCopied ? 'تم النسخ' : 'نسخ'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleShareInvitation}
+                  className="min-h-[40px] aurora-btn-motion inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface)] px-3 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 hover:border-[#635BDB]"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                  <span>مشاركة</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleToggleInvitation}
+                  disabled={inviteSaving}
+                  className={`min-h-[40px] aurora-btn-motion inline-flex items-center justify-center rounded-lg px-3 py-2 text-xs font-bold disabled:opacity-60 ${
+                    invitationCode.isActive
+                      ? 'border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/50 text-amber-900 dark:text-amber-200'
+                      : 'bg-emerald-700 text-white hover:bg-emerald-800'
+                  }`}
+                >
+                  {invitationCode.isActive ? 'تعطيل' : 'تفعيل'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-[var(--aurora-border)] bg-[var(--aurora-surface-2)] p-3 text-xs text-slate-700 dark:text-slate-300">
+              لا يوجد رمز دعوة حالياً. أنشئ رمزاً جديداً لتمكين الطلاب من التسجيل الذاتي.
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 pt-1">
+            <label className="text-xs font-semibold text-slate-800 dark:text-slate-100 shrink-0">
+              مدة الصلاحية:
+              <select
+                value={inviteDuration}
+                onChange={(e) => setInviteDuration(e.target.value as '7' | '14' | '30' | 'none')}
+                className="mr-2 min-h-[40px] rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-2)] px-3 py-1.5 text-xs font-semibold text-slate-900 dark:text-slate-100"
+              >
+                <option value="7">7 أيام</option>
+                <option value="14">14 يوماً</option>
+                <option value="30">30 يوماً</option>
+                <option value="none">بدون انتهاء</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={handleGenerateInvitation}
+              disabled={inviteSaving}
+              className="min-h-[40px] aurora-btn-motion inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#635BDB] px-4 py-2 text-xs font-bold text-white hover:bg-[#5249C9] disabled:opacity-60"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${inviteSaving ? 'animate-spin' : ''}`} />
+              <span>{invitationCode ? 'تغيير الرمز وإبطال السابق' : 'إنشاء رمز دعوة'}</span>
+            </button>
+          </div>
+        </section>
+      )}
+      
       {/* Filters */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
         <div className="relative">
